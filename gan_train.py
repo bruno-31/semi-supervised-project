@@ -1,12 +1,22 @@
 import os
 import numpy as np
 import tensorflow as tf
-import cifar10_input, cifar_openai
+import cifar10_input, cifar_openai, simple_model
 from hyperparam import *
+import logging
 
 
 global _wrapped_ops
 _wrapped_ops = set()
+
+# Logging
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+console.setFormatter(logging.Formatter('[%(asctime)s %(levelname)-3s @%(name)s] %(message)s', datefmt='%H:%M:%S'))
+logging.basicConfig(level=logging.DEBUG, handlers=[console])
+logging.getLogger("tensorflow").setLevel(logging.WARNING)
+logger = logging.getLogger("gan.test")
+
 
 
 def variable_summaries(var):
@@ -63,29 +73,31 @@ def main():
     print("Collecting data")
     data = cifar10_input.TrainData()
 
+    logger.info("log directory {} is  ...".format(LOG_DIR))
+
     # placeholders
     inp_lbl_pl = tf.placeholder(dtype=tf.float32, shape=[BATCH_SIZE]+list(IMAGE_DIM), name="data_labeled")
     lbl_pl = tf.placeholder(dtype=tf.float32, shape=[BATCH_SIZE, NUM_CLASS], name="labels_data")
     inp_unl_pl = tf.placeholder(dtype=tf.float32, shape=[BATCH_SIZE]+list(IMAGE_DIM), name="data_unlabeled")
     z_seed = tf.placeholder(dtype=tf.float32, shape=[BATCH_SIZE]+list(Z_DIM), name="z_seed")
     train_pl = tf.placeholder(dtype=tf.bool, shape=[], name="is_training")
-    keep_pl = tf.placeholder(dtype=tf.float32, name="dropout_keep_rate")
 
     global_step = tf.Variable(initial_value=0, dtype=tf.int32, name='global_step', trainable=False)
 
     # init_models = True
     # build model
     with tf.variable_scope('generator_model') as gen_scope:
-        inp_gen_init = cifar_openai.generator( z_seed, is_training=train_pl, output_size=IMAGE_DIM, init=True)
+        inp_gen_init = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM,init=True )
         gen_scope.reuse_variables()
-        inp_gen = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM, False)
+        inp_gen = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM, init=False)
 
     with tf.variable_scope('discriminator_model') as dis_scope:
-        dis_lbl_init = cifar_openai.discriminator( inp_lbl_pl, is_training=train_pl, num_classes=11, init=True)
+        dis_lbl_init = _wrap_update_ops(cifar_openai.discriminator, inp_lbl_pl, is_training=train_pl, num_classes=11, init=True)
         dis_scope.reuse_variables()
-        dis_lbl = cifar_openai.discriminator( inp_lbl_pl, is_training=train_pl, num_classes=11, init=False)
-        dis_unl = cifar_openai.discriminator( inp_unl_pl, is_training=train_pl, num_classes=11, init=False)
-        dis_gen = cifar_openai.discriminator( inp_gen, is_training=train_pl, num_classes=11, init=False)
+
+        dis_lbl = _wrap_update_ops(cifar_openai.discriminator, inp_lbl_pl, is_training=train_pl, num_classes=11, init=True)
+        dis_unl = _wrap_update_ops(cifar_openai.discriminator, inp_unl_pl, is_training=train_pl, num_classes=11, init=False)
+        dis_gen = _wrap_update_ops(cifar_openai.discriminator, inp_gen, is_training=train_pl, num_classes=11, init=False)
 
     # build cost function
     label_dis_fake = np.zeros((BATCH_SIZE, 11))
@@ -175,6 +187,7 @@ def main():
 
             batch = sess.run(global_step)
 
+
             if batch >= NUM_BATCH:
                 sv.saver.save(sess, os.path.join(LOG_DIR+'model.ckpt'), global_step=global_step)
                 sv.stop()
@@ -198,7 +211,9 @@ def main():
             writer.add_summary(sum_gen, batch)
 
             if batch % 100 == 0:
-                print("batch : "+str(batch))
+                # print("batch : "+str(batch))
+                logger.info('Step {}: Minimizing the error...'.format(batch))
+
                 sum_im = sess.run(summary_im, feed_dict={inp_lbl_pl:inp,
                                                          lbl_pl:lbl,
                                                          inp_unl_pl:inp_unl,

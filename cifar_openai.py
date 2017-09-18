@@ -57,6 +57,8 @@ def discriminator(inp, is_training, num_classes, init, **kwargs):
     with tf.variable_scope('conv7'):
         x = otw.conv2d(x, 192, nonlinearity=leakyReLu, name = "conv7", init=init)
 
+        intermediate_layer =x  # features matching
+
     x = tf.reshape(x, [bs,8,8,192])
 
     #network-in-network layers
@@ -77,12 +79,13 @@ def discriminator(inp, is_training, num_classes, init, **kwargs):
     # The order of definition and inclusion in output is crucial as well! You must define y1 before y2, and also include
     # them in output in the order.
     with tf.variable_scope('discriminator'):
-        with tf.variable_scope('fc1'):
-            y1 = otw.dense(x, 1000, name='fc1', nonlinearity=leakyReLu, init=init)
+        # with tf.variable_scope('fc1'):
+        #     y1 = otw.dense(x, 1000, name='fc1', nonlinearity=leakyReLu, init=init)
         with tf.variable_scope('fc2'):
-            y1 = otw.dense(y1, num_classes, name='fc2', nonlinearity=None, init=init)
+            y1 = otw.dense(x, num_classes, name='fc2', nonlinearity=None, init=init)
 
-    return y1
+
+    return y1, intermediate_layer
 
 
 #
