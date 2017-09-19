@@ -4,7 +4,7 @@ import tensorflow as tf
 import cifar10_input, cifar_openai, simple_model
 from hyperparam import *
 import logging
-
+from preprocessing import unaply
 
 global _wrapped_ops
 _wrapped_ops = set()
@@ -95,28 +95,30 @@ def main():
         dis_lbl_init = _wrap_update_ops(cifar_openai.discriminator, inp_lbl_pl, is_training=train_pl, num_classes=11, init=True)
         dis_scope.reuse_variables()
 
-        dis_lbl = _wrap_update_ops(cifar_openai.discriminator, inp_lbl_pl, is_training=train_pl, num_classes=11, init=True)
+        dis_lbl = _wrap_update_ops(cifar_openai.discriminator, inp_lbl_pl, is_training=train_pl, num_classes=11, init=False)
         dis_unl = _wrap_update_ops(cifar_openai.discriminator, inp_unl_pl, is_training=train_pl, num_classes=11, init=False)
         dis_gen = _wrap_update_ops(cifar_openai.discriminator, inp_gen, is_training=train_pl, num_classes=11, init=False)
 
     # build cost function
     label_dis_fake = np.zeros((BATCH_SIZE, 11))
     label_dis_fake[:, -1] = np.ones((BATCH_SIZE))
-    with tf.name_scope('generator_loss'):
-        # <N+1
-        loss_gen = - tf.reduce_mean(tf.log(1 - tf.nn.softmax(dis_gen)[-1]))
+    label_dis_fake = tf.constant(label_dis_fake)
 
+    with tf.name_scope('generator_loss'):        #     loss have been checked
+        # <N+1
+        loss_gen = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_gen)[:, -1]))
         pred_gen_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         fool_rate = 1 - tf.reduce_mean(tf.cast(pred_gen_fake, tf.float32))
+        # loss_gen = 1 - fool_rate
         # TODO features matching
 
-    with tf.name_scope('discriminator_loss'):
+    with tf.name_scope('discriminator_loss'):     #     loss have been checked
         # = N+1
         loss_dis_gen = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dis_gen, labels=label_dis_fake))
         correct_pred_dis_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_gen = tf.reduce_mean(tf.cast(correct_pred_dis_fake, tf.float32))
         # < N+1
-        loss_dis_unl = - tf.reduce_mean(tf.log(1 - tf.nn.softmax(dis_unl)[-1]))
+        loss_dis_unl = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_unl)[:, -1]))
         incorrect_pred_dis_real = tf.equal(tf.arg_max(dis_unl, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_unl = 1 - tf.reduce_mean(tf.cast(incorrect_pred_dis_real, tf.float32))
         # = lbl
@@ -124,20 +126,24 @@ def main():
         correct_pred_dis_lbl = tf.equal(tf.arg_max(dis_lbl, 1), tf.arg_max(lbl_pl, 1))
         acc_dis_lbl = tf.reduce_mean(tf.cast(correct_pred_dis_lbl, tf.float32))
 
-        loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
+        # loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
+        loss_dis = loss_dis_gen + loss_dis_unl
+
 
     # collecting 2 list of training variables corresponding to discriminator and generator
     tvars = tf.trainable_variables()  # return list trainable variables
     d_vars = [var for var in tvars if 'discriminator_model' in var.name]
     g_vars = [var for var in tvars if 'generator_model' in var.name]
 
+    print("trainable var for discriminator")
     for var in d_vars:  # display trainable vars for sanity check
         print(var.name)
+    print("trainable var for generator")
     for var in g_vars:
         print(var.name)
 
     # optimizer and dependencies
-    optimzer = tf.train.AdamOptimizer(0.0003)
+    optimzer = tf.train.AdamOptimizer(0.00003)
     g_trainer = optimzer.minimize(loss_gen, var_list=g_vars, name='generator_trainer')
     d_trainer = optimzer.minimize(loss_dis, var_list=d_vars, name='discriminator_trainer')
 
@@ -157,8 +163,8 @@ def main():
 
 
     with tf.name_scope('Image'):
-        tf.summary.image('Generated_images', inp_gen, 10)  # add 10 generated images to summary
-        tf.summary.image('Data_images', inp_lbl_pl, 10)
+        tf.summary.image('Generated_images',tf.map_fn(unaply, inp_gen), 10)  # add 10 generated images to summary
+        tf.summary.image('Data_images',tf.map_fn(unaply, inp_lbl_pl), 10)
 
     summaries = tf.get_collection(tf.GraphKeys.SUMMARIES)
     summary_gen = tf.summary.merge([v for v in summaries if "Discriminator/" in v.name])
@@ -168,6 +174,8 @@ def main():
     merged = tf.summary.merge_all()
 
     inc_global_step = tf.assign(global_step,global_step+1)
+
+
 
     sv = tf.train.Supervisor(logdir=LOG_DIR,
                              global_step=global_step,
@@ -187,7 +195,6 @@ def main():
 
             batch = sess.run(global_step)
 
-
             if batch >= NUM_BATCH:
                 sv.saver.save(sess, os.path.join(LOG_DIR+'model.ckpt'), global_step=global_step)
                 sv.stop()
@@ -196,12 +203,17 @@ def main():
             inp, lbl = next(data.labelled)
             lbl = np.append(lbl, np.zeros((BATCH_SIZE, 1)), axis=1)
             inp_unl, _ = next(data.unlabelled)
+
             _, sum_dis = sess.run([d_trainer, summary_cls], feed_dict = {inp_lbl_pl:inp,
                                                                          lbl_pl:lbl,
                                                                          inp_unl_pl:inp_unl,
                                                                          z_seed:next(data.rand_vec),
                                                                          train_pl:True})
             writer.add_summary(sum_dis, batch)
+
+            inp, lbl = next(data.labelled)
+            lbl = np.append(lbl, np.zeros((BATCH_SIZE, 1)), axis=1)
+            inp_unl, _ = next(data.unlabelled)
 
             _, sum_gen =sess.run([g_trainer, summary_gen], feed_dict={inp_lbl_pl:inp,
                                                                      lbl_pl:lbl,
@@ -210,7 +222,7 @@ def main():
                                                                      train_pl:True})
             writer.add_summary(sum_gen, batch)
 
-            if batch % 100 == 0:
+            if batch % 50 == 0:
                 # print("batch : "+str(batch))
                 logger.info('Step {}: Minimizing the error...'.format(batch))
 

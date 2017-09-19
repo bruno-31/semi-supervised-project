@@ -1,7 +1,7 @@
 
 
 max_iter = 10
-BATCH_SIZE = 256
+BATCH_SIZE = 56
 output_path = 'output'
 log_path = 'train_log_ssl'
 freq_print = 1
@@ -10,7 +10,7 @@ KEEP_RATE = 0.7
 IM_HEIGHT = 28
 IM_WIDTH = 28
 IM_SIZE = IM_HEIGHT * IM_WIDTH
-LABELED_DATA = 1.0
+LABELED_DATA = 0.1
 LOG_DIR = 'train_log_ssl'
 IMAGE_DIM = (32, 32, 3)
 NUM_CLASS = 11

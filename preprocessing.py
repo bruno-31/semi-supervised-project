@@ -2,7 +2,7 @@
 
 import numpy as np
 from sklearn.decomposition import PCA
-
+import tensorflow as tf
 
 def whitening_image(image_np):
     '''
@@ -102,9 +102,9 @@ def apply_train(inp):
     """
     img, label = inp
     img = img.astype(np.float32)
-    img = pad_data(img,3)
-    img = random_crop_and_flip(img,3)
-    # img = random_color(img, 0.5)
+    img = pad_data(img,2)
+    img = random_crop_and_flip(img,2)
+    img = random_color(img, 0.1)
     img = whitening_image(img)
     return (img, label)
 
@@ -114,3 +114,10 @@ def apply_test(inp):
     img = img.astype(np.float32)
     img = whitening_image(img)
     return (img, label)
+
+
+def unaply(img):
+    image = img-tf.reduce_min(img)
+    image = image / tf.reduce_max(image)
+    return image
+    # return tf.cast((image + 1) * 127.5, tf.uint8)
