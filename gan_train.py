@@ -99,6 +99,10 @@ def main():
         dis_unl = _wrap_update_ops(cifar_openai.discriminator, inp_unl_pl, is_training=train_pl, num_classes=11, init=False)
         dis_gen = _wrap_update_ops(cifar_openai.discriminator, inp_gen, is_training=train_pl, num_classes=11, init=False)
 
+        dis_lbl_one = dis_lbl[:,10]
+        dis_unl_one= dis_unl[:, 10]
+        dis_gen_one = dis_gen[:, 10]
+
     # build cost function
     label_dis_fake = np.zeros((BATCH_SIZE, 11))
     label_dis_fake[:, -1] = np.ones((BATCH_SIZE))
@@ -106,19 +110,19 @@ def main():
 
     with tf.name_scope('generator_loss'):        #     loss have been checked
         # <N+1
-        loss_gen = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_gen)[:, -1]))
         pred_gen_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         fool_rate = 1 - tf.reduce_mean(tf.cast(pred_gen_fake, tf.float32))
-        # loss_gen = 1 - fool_rate
-        # TODO features matching
+
+        loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=dis_gen_one, labels=tf.ones_like(dis_gen_one)))
+        # fool_rate = tf.reduce_mean(tf.sigmoid(dis_gen))
 
     with tf.name_scope('discriminator_loss'):     #     loss have been checked
         # = N+1
-        loss_dis_gen = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dis_gen, labels=label_dis_fake))
+        # loss_dis_gen = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dis_gen, labels=label_dis_fake))
         correct_pred_dis_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_gen = tf.reduce_mean(tf.cast(correct_pred_dis_fake, tf.float32))
         # < N+1
-        loss_dis_unl = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_unl)[:, -1]))
+        # loss_dis_unl = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_unl)[:, -1]))
         incorrect_pred_dis_real = tf.equal(tf.arg_max(dis_unl, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_unl = 1 - tf.reduce_mean(tf.cast(incorrect_pred_dis_real, tf.float32))
         # = lbl
@@ -126,7 +130,12 @@ def main():
         correct_pred_dis_lbl = tf.equal(tf.arg_max(dis_lbl, 1), tf.arg_max(lbl_pl, 1))
         acc_dis_lbl = tf.reduce_mean(tf.cast(correct_pred_dis_lbl, tf.float32))
 
-        # loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
+        loss_dis_unl = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=dis_unl_one, labels=tf.ones_like(dis_unl_one)))
+        loss_dis_gen = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=dis_gen_one, labels=tf.zeros_like(dis_gen_one)))
+
+         # loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
         loss_dis = loss_dis_gen + loss_dis_unl
 
 
