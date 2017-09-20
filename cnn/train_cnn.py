@@ -4,8 +4,8 @@ import time
 import numpy as np
 import tensorflow as tf
 
-import cifar10_input
 import cifar_model
+from gan import cifar10_input
 
 flags = tf.app.flags
 flags.DEFINE_integer("num_batch", 20000, "batch size [128]")

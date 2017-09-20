@@ -1,5 +1,6 @@
 import tensorflow as tf
-import openai_tf_weightnorm as otw
+
+from gan import openai_tf_weightnorm as otw
 
 
 def leakyReLu(x, alpha=0.2, name=None):

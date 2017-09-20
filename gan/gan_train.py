@@ -1,10 +1,13 @@
+import logging
 import os
+
+import cifar_openai
 import numpy as np
 import tensorflow as tf
-import cifar10_input, cifar_openai, simple_model
 from hyperparam import *
-import logging
-from preprocessing import unaply
+
+import cifar10_input
+from gan.preprocessing import unaply
 
 global _wrapped_ops
 _wrapped_ops = set()
@@ -105,7 +108,7 @@ def main():
     # init_models = True
     # build model
     with tf.variable_scope('generator_model') as gen_scope:
-        inp_gen_init = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM,init=True )
+        inp_gen_init = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM, init=True)
         gen_scope.reuse_variables()
         inp_gen = _wrap_update_ops(cifar_openai.generator, z_seed, train_pl, IMAGE_DIM, init=False)
 

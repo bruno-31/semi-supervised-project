@@ -1,16 +1,18 @@
 # CIFAR10 Downloader
 
+import errno
 import logging
-import pickle
 import math
 import os
-import errno
-import tarfile
+import pickle
 import shutil
-import preprocessing
+import tarfile
+
 import numpy as np
-from hyperparam import *
 import urllib3
+from hyperparam import *
+
+from gan import preprocessing
 
 logger = logging.getLogger(__name__)
 

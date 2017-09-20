@@ -2,9 +2,11 @@
 The implementation in Tensorflow of OpenAI's GAN defined in the Improved techniques for training GANs paper (2016).
 """
 import logging
+
 import tensorflow as tf
-import openai_tf_weightnorm as otw
 from hyperparam import *
+
+from gan import openai_tf_weightnorm as otw
 
 bs = BATCH_SIZE
 
