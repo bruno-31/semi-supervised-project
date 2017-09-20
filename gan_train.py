@@ -65,6 +65,24 @@ def _deep_name(rv):
         return rv.name
 
 
+def _weight_decay_regularizer(*patterns):
+    """Return a weighted L2-norm by pattern matching variable names against weights."""
+    _weight_list = []
+    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+        for pattern, weight in patterns:
+            if pattern in v.name:
+                _weight_list.append(v * weight)
+                break
+        else:
+            _weight_list.append(v)
+
+    for element in _weight_list:
+        print(element.name)
+
+    return tf.reduce_sum(tf.square(
+        tf.concat([tf.reshape(v, [-1]) for v in _weight_list], axis=0))) / 2 * WEIGHT_DECAY
+
+
 def main():
     print("logdir :=  " + LOG_DIR)
     if not os.path.exists(LOG_DIR):
@@ -99,17 +117,17 @@ def main():
         dis_unl = _wrap_update_ops(cifar_openai.discriminator, inp_unl_pl, is_training=train_pl, num_classes=11, init=False)
         dis_gen = _wrap_update_ops(cifar_openai.discriminator, inp_gen, is_training=train_pl, num_classes=11, init=False)
 
-    # build cost function
+    '''loss '''
     label_dis_fake = np.zeros((BATCH_SIZE, 11))
     label_dis_fake[:, -1] = np.ones((BATCH_SIZE))
     label_dis_fake = tf.constant(label_dis_fake)
 
     with tf.name_scope('generator_loss'):        #     loss have been checked
         # <N+1
-        loss_gen = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_gen)[:, -1]))
+        loss_gen = tf.clip_by_value(- tf.reduce_mean(
+            tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_gen)[:, -1])),1e-10, 1e6)
         pred_gen_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         fool_rate = 1 - tf.reduce_mean(tf.cast(pred_gen_fake, tf.float32))
-        # loss_gen = 1 - fool_rate
         # TODO features matching
 
     with tf.name_scope('discriminator_loss'):     #     loss have been checked
@@ -117,8 +135,9 @@ def main():
         loss_dis_gen = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dis_gen, labels=label_dis_fake))
         correct_pred_dis_fake = tf.equal(tf.arg_max(dis_gen, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_gen = tf.reduce_mean(tf.cast(correct_pred_dis_fake, tf.float32))
-        # < N+1
-        loss_dis_unl = - tf.reduce_mean(tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_unl)[:, -1]))
+        # < N+1 clip avoid NAN log
+        loss_dis_unl = tf.clip_by_value(- tf.reduce_mean(
+            tf.log(tf.ones([BATCH_SIZE]) - tf.nn.softmax(dis_unl)[:, -1])),1e-10, 1e6)
         incorrect_pred_dis_real = tf.equal(tf.arg_max(dis_unl, 1), tf.arg_max(label_dis_fake, 1))
         acc_dis_unl = 1 - tf.reduce_mean(tf.cast(incorrect_pred_dis_real, tf.float32))
         # = lbl
@@ -126,24 +145,29 @@ def main():
         correct_pred_dis_lbl = tf.equal(tf.arg_max(dis_lbl, 1), tf.arg_max(lbl_pl, 1))
         acc_dis_lbl = tf.reduce_mean(tf.cast(correct_pred_dis_lbl, tf.float32))
 
-        # loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
-        loss_dis = loss_dis_gen + loss_dis_unl
+        loss_dis = loss_dis_lbl + loss_dis_gen + loss_dis_unl
+        # loss_dis = loss_dis_gen + loss_dis_unl
 
+    # '''weight reg'''
+    # print('adding weight decay discriminator')
+    # loss_dis += _weight_decay_regularizer(['/discriminator_model/',WEIGHT_DECAY])
+    # print('adding weight decay generator')
+    # loss_gen += _weight_decay_regularizer(['/generator_model/', WEIGHT_DECAY])
 
     # collecting 2 list of training variables corresponding to discriminator and generator
     tvars = tf.trainable_variables()  # return list trainable variables
     d_vars = [var for var in tvars if 'discriminator_model' in var.name]
     g_vars = [var for var in tvars if 'generator_model' in var.name]
 
-    print("trainable var for discriminator")
-    for var in d_vars:  # display trainable vars for sanity check
-        print(var.name)
-    print("trainable var for generator")
-    for var in g_vars:
-        print(var.name)
+    # print("trainable var for discriminator")
+    # for var in d_vars:  # display trainable vars for sanity check
+    #     print(var.name)
+    # print("trainable var for generator")
+    # for var in g_vars:
+    #     print(var.name)
 
     # optimizer and dependencies
-    optimzer = tf.train.AdamOptimizer(0.00003)
+    optimzer = tf.train.AdamOptimizer(0.0003)
     g_trainer = optimzer.minimize(loss_gen, var_list=g_vars, name='generator_trainer')
     d_trainer = optimzer.minimize(loss_dis, var_list=d_vars, name='discriminator_trainer')
 

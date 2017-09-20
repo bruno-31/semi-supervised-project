@@ -15,5 +15,5 @@ LOG_DIR = 'train_log_ssl'
 IMAGE_DIM = (32, 32, 3)
 NUM_CLASS = 11
 Z_DIM = (100,)
-
+WEIGHT_DECAY = 100
 NUM_BATCH = 50000

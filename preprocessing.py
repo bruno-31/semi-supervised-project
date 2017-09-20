@@ -105,19 +105,22 @@ def apply_train(inp):
     img = pad_data(img,2)
     img = random_crop_and_flip(img,2)
     img = random_color(img, 0.1)
-    img = whitening_image(img)
+    # img = whitening_image(img)
+    img = normalize_range(img)
     return (img, label)
+
 
 
 def apply_test(inp):
     img, label = inp
     img = img.astype(np.float32)
-    img = whitening_image(img)
+    # img = whitening_image(img)
+    img = normalize_range(img)
     return (img, label)
 
 
 def unaply(img):
-    image = img-tf.reduce_min(img)
-    image = image / tf.reduce_max(image)
-    return image
+    # image = img-tf.reduce_min(img)
+    # image = image / tf.reduce_max(image)
+    return img
     # return tf.cast((image + 1) * 127.5, tf.uint8)
