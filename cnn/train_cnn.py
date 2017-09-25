@@ -36,6 +36,16 @@ def zca_whiten(X, Y):
     return X_white, Y_white
 
 
+def decayed_lr(batch):
+    '''
+    compute decayed learning rate : for the last 100 epochs the learning rate
+    is linearly decayed to zero.
+    '''
+    if batch >= 100:
+        return FLAGS.learning_rate *(2-batch/100)
+
+    return FLAGS.learning_rate
+
 def main(_):
     print("logdir :=  " + FLAGS.log_dir)
     if not os.path.exists(FLAGS.log_dir):
@@ -70,6 +80,7 @@ def main(_):
     lbl = tf.placeholder(tf.float32, [FLAGS.batch_size, 10], name='lbl_input')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     accuracy_epoch = tf.placeholder(tf.float32,[])
+    learning_rate_pl = tf.placeholder(tf.float32,[])
 
     with tf.variable_scope('cnn_model') as cnn_scope:
         logits = cifar_model.inference(inp, is_training_pl)
@@ -81,7 +92,7 @@ def main(_):
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
         eval_correct = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=0.9)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_pl, beta1=0.9)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
@@ -97,6 +108,7 @@ def main(_):
     tf.summary.scalar('loss', loss,['train'])
     tf.summary.scalar('accuracy', accuracy, ['train'])
     tf.summary.scalar('accuracy epoch', accuracy_epoch,['epoch'])
+    tf.summary.scalar('learning rate', learning_rate_pl, ['epoch'])
 
     sum_op = tf.summary.merge_all('train')
     sum_epoch_op = tf.summary.merge_all('epoch')
@@ -109,7 +121,7 @@ def main(_):
         train_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir,'train'), sess.graph)
         test_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir,'test'), sess.graph)
 
-        for epoch in range(1000):
+        for epoch in range(200):
             begin = time.time()
 
             # randomly permuted minibatches
@@ -124,7 +136,8 @@ def main(_):
                 ran_to = (t + 1) * FLAGS.batch_size
                 feed_dict = {inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
-                             is_training_pl: True}
+                             is_training_pl: True,
+                             learning_rate_pl:decayed_lr(train_batch)}
 
                 _, ls, tp, sm = sess.run([train_op, loss, eval_correct, sum_op], feed_dict=feed_dict)
                 if t >= (nr_batches_train-FLAGS.moving_average): # moving average training
