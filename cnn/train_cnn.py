@@ -9,7 +9,9 @@ flags.DEFINE_integer("batch_size", 100, "batch size [128]")
 flags.DEFINE_integer("moving_average", 10, "moving average [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('log_dir', './log', 'log directory')
-flags.DEFINE_float('seed', 1546, 'seed[1]')
+flags.DEFINE_integer('seed', 1546, 'seed[1]')
+flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
+
 FLAGS = flags.FLAGS
 
 
@@ -17,16 +19,17 @@ def zca_whiten(X, Y):
     X = X.reshape([-1, 32 * 32 * 3])
     Y = Y.reshape([-1, 32 * 32 * 3])
     # compute the covariance of the image data
-    cov = np.cov(X, rowvar=True)  # cov is (N, N)
+    # cov = np.cov(X, rowvar=True)  # cov is (N, N)
+    cov = np.dot(X.T, X) / X.shape[0]
     # singular value decomposition
     U, S, V = np.linalg.svd(cov)  # U is (N, N), S is (N,)
     # build the ZCA matrix
     epsilon = 1e-5
     zca_matrix = np.dot(U, np.dot(np.diag(1.0 / np.sqrt(S + epsilon)), U.T))
 
-    # transform the image data       zca_matrix is (N,N)
-    X_white = np.dot(zca_matrix, X)  # zca is (N, 3072)
-    Y_white = np.dot(zca_matrix, Y)  # zca is (N, 3072)
+    # transform the image data       zca_matrix is (3072,3072)
+    X_white = np.dot(X, zca_matrix)  # zca is (3072, 3072)
+    Y_white = np.dot(Y, zca_matrix)
 
     X_white = X_white.reshape(-1, 32, 32, 3)
     Y_white = Y_white.reshape([-1, 32, 32, 3])
@@ -53,13 +56,14 @@ def main(_):
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
     # whitten data
-    print('starting preprocessing')
+    print('starting zca preprocessing')
+    begin = time.time()
     trainx -= np.mean(trainx, axis=0)
-    # trainx /= np.std(trainx, axis=0)
+    trainx /= np.std(trainx, axis=0)
     testx -= np.mean(trainx, axis=0)
-    # testx /= np.std(trainx, axis=0)
-    # trainx, testx = zca_whiten(trainx, testx)
-    print('preprocessing done')
+    testx /= np.std(trainx, axis=0)
+    trainx, testx = zca_whiten(trainx, testx)
+    print('preprocessing done in : %ds'%(time.time()-begin))
 
     '''construct graph'''
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='data_input')
@@ -77,7 +81,7 @@ def main(_):
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
         eval_correct = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=0.003, beta1=0.9)
+    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=0.9)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
@@ -85,9 +89,9 @@ def main(_):
 
     # TODO add decayed loss
 
-    vars = tf.trainable_variables()
-    for var in vars:
-        print(var.name)
+    # vars = tf.trainable_variables() # sanity check trainable vars
+    # for var in vars:
+    #     print(var.name)
 
     # Summaries
     tf.summary.scalar('loss', loss,['train'])
@@ -104,8 +108,6 @@ def main(_):
         train_batch = 0
         train_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir,'train'), sess.graph)
         test_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir,'test'), sess.graph)
-
-        print(nr_batches_train)
 
         for epoch in range(1000):
             begin = time.time()
