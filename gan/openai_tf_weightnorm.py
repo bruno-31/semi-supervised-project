@@ -192,7 +192,7 @@ def conv2d(x, num_filters, filter_size=[3,3], stride=[1,1], pad='SAME', nonlinea
     with tf.variable_scope(name):
         if init:
             # data based initialization of parameters
-            V = tf.get_variable('V', filter_size+[int(x.get_shape()[-1]),num_filters], tf.float32, tf.random_normal_initializer(0, 0.05), trainable=True)
+            V = tf.get_variable('V', filter_size+[int(x.get_shape()[-1]),num_filters], tf.float32, tf.random_normal_initializer(0, 0.05), trainable=True) #init 0.05
             V_norm = tf.nn.l2_normalize(V.initialized_value(), [0,1,2])
             x_init = tf.nn.conv2d(x, V_norm, [1]+stride+[1], pad)
             m_init, v_init = tf.nn.moments(x_init, [0,1,2])

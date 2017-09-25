@@ -1,6 +1,8 @@
 import tensorflow as tf
 
-from gan import openai_tf_weightnorm as otw
+def gaussian_noise_layer(input_layer, std):
+    noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
+    return input_layer + noise
 
 
 def leakyReLu(x, alpha=0.2, name=None):
@@ -15,42 +17,59 @@ def _leakyReLu_impl(x, alpha):
     return tf.nn.relu(x) - (alpha * tf.nn.relu(-x))
 
 
-def inference(inp, is_training, num_classes, init):
+def inference(inp, is_training):
+
     x = inp
-    # adding noise for regularization
-    with tf.variable_scope('gaussian_noise_layer'):
-        x = otw.gaussian_noise_layer(x, 0.15)
 
-    with tf.variable_scope('conv_1'):
-        x = otw.conv2d(x, 96, nonlinearity=leakyReLu, init=init)
-    with tf.variable_scope('conv_2'):
-        x = otw.conv2d(x, 96, nonlinearity=leakyReLu, init=init)
-    with tf.variable_scope('conv_3'):
-        x = otw.conv2d(x, 96, nonlinearity=leakyReLu, init=init)
+    x = gaussian_noise_layer(x, std=0.15)
 
-    x = tf.layers.max_pooling2d(x, pool_size=2, strides=2, padding='SAME')
-    # x = tf.layers.dropout(x, 0.5, training=is_training)
+    with tf.variable_scope('conv1'):
+        x = tf.layers.conv2d(x,96,3,padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+    with tf.variable_scope('conv2'):
+        x = tf.layers.conv2d(x,96,3,padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+    with tf.variable_scope('conv3'):
+        x = tf.layers.conv2d(x,96,3,padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
 
-    with tf.variable_scope('conv_4'):
-        x = otw.conv2d(x, 192, nonlinearity=leakyReLu, init=init)
-    with tf.variable_scope('conv_5'):
-        x = otw.conv2d(x, 192, nonlinearity=leakyReLu, init=init)
-    with tf.variable_scope('conv_6'):
-        x = otw.conv2d(x, 192, nonlinearity=leakyReLu, init=init)
+    x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
+    x = tf.layers.dropout(x,0.5,training=is_training)
 
-    x = tf.layers.max_pooling2d(x, pool_size=2, strides=2, padding='SAME')
+    with tf.variable_scope('conv4'):
+        x = tf.layers.conv2d(x, 192, 3, padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+    with tf.variable_scope('conv5'):
+            x = tf.layers.conv2d(x, 192, 3, padding='SAME')
+            x = tf.layers.batch_normalization(x, training=is_training)
+            x = leakyReLu(x)
+    with tf.variable_scope('conv6'):
+        x = tf.layers.conv2d(x, 192, 3, padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+
+    x = tf.layers.max_pooling2d(x, 2, 2, padding='SAME')
     x = tf.layers.dropout(x, 0.5, training=is_training)
 
-    with tf.variable_scope('conv_7'):
-        x = otw.conv2d(x, 192, nonlinearity=leakyReLu, init=init, pad='VALID')
-    with tf.variable_scope('conv_8'):
-        x = otw.conv2d(x, 192, filter_size=[1,1], nonlinearity=leakyReLu, init=init)
-    with tf.variable_scope('conv_9'):
-        x = otw.conv2d(x, 192, filter_size=[1,1], nonlinearity=leakyReLu, init=init)
+    with tf.variable_scope('conv7'):
+        x = tf.layers.conv2d(x, 192, 3, padding='VALID')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+    with tf.variable_scope('conv8'):
+        x = tf.layers.conv2d(x, 192, 1, padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
+    with tf.variable_scope('conv9'):
+        x = tf.layers.conv2d(x, 192, 1, padding='SAME')
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = leakyReLu(x)
 
-    x = tf.layers.average_pooling2d(x, pool_size=6, strides=1)
-
+    x = tf.layers.average_pooling2d(x,pool_size=6,strides=1)
     x = tf.squeeze(x)
+    y = tf.layers.dense(x, units=10)
 
-    y = otw.dense(x, num_classes, name='fc1', nonlinearity=None, init=init)
     return y

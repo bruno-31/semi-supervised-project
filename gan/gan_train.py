@@ -1,12 +1,12 @@
 import logging
 import os
 
-import cifar_openai
 import numpy as np
 import tensorflow as tf
 from hyperparam import *
 
 import cifar10_input
+from gan import cifar_openai
 from gan.preprocessing import unaply
 
 global _wrapped_ops

@@ -4,11 +4,10 @@ The implementation in Tensorflow of OpenAI's GAN defined in the Improved techniq
 import logging
 
 import tensorflow as tf
-from hyperparam import *
 
-from gan import openai_tf_weightnorm as otw
+import openai_tf_weightnorm as otw
 
-bs = BATCH_SIZE
+bs = 10
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ init_bias = None
 #
 # DISCRIMINATOR
 #
-def discriminator(inp, is_training, num_classes, init, **kwargs):
+def inference(inp, is_training, init, **kwargs):
     
     x = inp
 
@@ -84,10 +83,10 @@ def discriminator(inp, is_training, num_classes, init, **kwargs):
         # with tf.variable_scope('fc1'):
         #     y1 = otw.dense(x, 1000, name='fc1', nonlinearity=leakyReLu, init=init)
         with tf.variable_scope('fc2'):
-            y1 = otw.dense(x, num_classes, name='fc2', nonlinearity=None, init=init)
+            y1 = otw.dense(x, 10, name='fc2', nonlinearity=None, init=init)
 
 
-    return y1, intermediate_layer
+    return y1
 
 
 #
