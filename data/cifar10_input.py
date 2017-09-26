@@ -70,9 +70,9 @@ def _get_dataset(path,split):
     lbls = np.concatenate(lbls)
 
     # Convert images to [0..1] range
-    # imgs = imgs.astype(np.float32) / 255.0
+    imgs = imgs.astype(np.float32) / 255.0
     # Convert images to [-1..1] range
-    imgs = (imgs.astype(np.float32)-127.5) / 128.
+    # imgs = (imgs.astype(np.float32)-127.5) / 128.
     # Convert label to one hot encoding
     lbl = np.zeros((len(lbls),10))
     lbl[np.arange(len(lbls)), lbls] = 1

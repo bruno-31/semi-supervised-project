@@ -1,8 +1,11 @@
 import os
 import time
+
 import numpy as np
 import tensorflow as tf
-import cifar_model, cifar10_input
+
+from data import cifar10_input
+import cifar_model
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
@@ -62,12 +65,14 @@ def main(_):
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
     # whitten data
-    print('Starting zca preprocessing')
+    print('Starting preprocessing')
     begin = time.time()
-    # trainx -= np.mean(trainx, axis=0)
-    # trainx /= np.std(trainx, axis=0)
-    # testx -= np.mean(trainx, axis=0)
-    # testx /= np.std(trainx, axis=0)
+    m = np.mean(trainx, axis=0)
+    std = np.mean(trainx, axis=0)
+    trainx -= m
+    # trainx /= std
+    testx -= m
+    # testx /= std
     # trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
     print('Preprocessing done in : %ds' % (time.time() - begin))
 
@@ -93,10 +98,6 @@ def main(_):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
         train_op = optimizer.minimize(loss)
-
-    vars = tf.trainable_variables() # sanity check trainable vars
-    for var in vars:
-        print(var.name)
 
     # Summaries
     with tf.name_scope('per_batch_summary'):
@@ -175,7 +176,7 @@ def main(_):
                                          lbl: testy[x:x+FLAGS.batch_size],
                                          is_training_pl:False})
             test_writer.add_summary(sm, epoch)
-            print("Epoch %d, Train batch %d, time = %ds : loss train = %.4f, train acc = %.4f, ""test acc = %.4f" %
+            print("Epoch %d--Batch %d--Time = %ds | loss train = %.4f | train acc = %.4f | test acc = %.4f" %
                   (epoch, train_batch, time.time() - begin, train_loss, train_tp, test_tp))
 
 if __name__ == '__main__':
