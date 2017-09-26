@@ -13,7 +13,6 @@ flags.DEFINE_integer('seed', 1546, 'seed[1]')
 flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
 FLAGS = flags.FLAGS
 
-ENABLE_MA = False
 
 def zca_whiten(X, Y, epsilon=1e-5):
     X = X.reshape([-1, 32 * 32 * 3])
