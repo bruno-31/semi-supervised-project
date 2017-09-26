@@ -57,8 +57,8 @@ def main(_):
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [0 1] images
     testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
     # overfitting test
-    trainx = trainx[:10000]
-    trainy = trainy[:10000]
+    # trainx = trainx[:10000]
+    # trainy = trainy[:10000]
 
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
