@@ -19,15 +19,14 @@ def zca_whiten(X, Y, epsilon=1e-5):
     X = X.reshape([-1, 32 * 32 * 3])
     Y = Y.reshape([-1, 32 * 32 * 3])
     # compute the covariance of the image data
-    # cov = np.cov(X, rowvar=True)  # cov is (N, N)
     cov = np.dot(X.T, X) / X.shape[0]
     # singular value decomposition
-    U, S, V = np.linalg.svd(cov)  # U is (N, N), S is (N,)
+    U, S, V = np.linalg.svd(cov)
     # build the ZCA matrix
     zca_matrix = np.dot(U, np.dot(np.diag(1.0 / np.sqrt(S + epsilon)), U.T))
 
     # transform the image data       zca_matrix is (3072,3072)
-    X_white = np.dot(X, zca_matrix)  # zca is (3072, 3072)
+    X_white = np.dot(X, zca_matrix)
     Y_white = np.dot(Y, zca_matrix)
 
     X_white = X_white.reshape(-1, 32, 32, 3)
@@ -66,11 +65,11 @@ def main(_):
     # whitten data
     print('Starting zca preprocessing')
     begin = time.time()
-    trainx -= np.mean(trainx, axis=0)
-    trainx /= np.std(trainx, axis=0)
-    testx -= np.mean(trainx, axis=0)
-    testx /= np.std(trainx, axis=0)
-    trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
+    # trainx -= np.mean(trainx, axis=0)
+    # trainx /= np.std(trainx, axis=0)
+    # testx -= np.mean(trainx, axis=0)
+    # testx /= np.std(trainx, axis=0)
+    # trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
     print('Preprocessing done in : %ds' % (time.time() - begin))
 
     '''construct graph'''
@@ -96,9 +95,9 @@ def main(_):
     with tf.control_dependencies(update_ops):
         train_op = optimizer.minimize(loss)
 
-    # vars = tf.trainable_variables() # sanity check trainable vars
-    # for var in vars:
-    #     print(var.name)
+    vars = tf.trainable_variables() # sanity check trainable vars
+    for var in vars:
+        print(var.name)
 
     # Summaries
     with tf.name_scope('per_batch_summary'):
