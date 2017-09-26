@@ -57,8 +57,8 @@ def main(_):
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [0 1] images
     testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
     # overfitting test
-    trainx = trainx[:100]
-    trainy = trainy[:100]
+    trainx = trainx[:10000]
+    trainy = trainy[:10000]
 
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
@@ -70,7 +70,7 @@ def main(_):
     trainx /= np.std(trainx, axis=0)
     testx -= np.mean(trainx, axis=0)
     testx /= np.std(trainx, axis=0)
-    # trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
+    trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
     print('Preprocessing done in : %ds' % (time.time() - begin))
 
     '''construct graph'''
@@ -110,15 +110,14 @@ def main(_):
         tf.summary.scalar('accuracy epoch', accuracy_epoch, ['per_epoch'])
         tf.summary.merge(tf.contrib.layers.summarize_collection(tf.GraphKeys.TRAINABLE_VARIABLES),
                          ['per_epoch'])
-        with tf.name_scope('images'):
+        with tf.name_scope('input_data'):
             tf.summary.image('input image', inp, 10, ['per_epoch'])
             tf.summary.histogram('first input image', tf.reshape(inp[0],[-1]), ['per_epoch'])
-
+            tf.summary.histogram('input labels', tf.argmax(lbl, axis=1),['per_epoch'])
+            tf.summary.histogram('output logits', tf.argmax(logits, axis=0),['per_epoch'])
 
     sum_op = tf.summary.merge_all('batch')
     sum_epoch_op = tf.summary.merge_all('per_epoch')
-
-
 
     '''//////perform training //////'''
     with tf.Session() as sess:
@@ -166,12 +165,18 @@ def main(_):
 
             test_tp /= testx.shape[0]
 
-            sm = sess.run(sum_epoch_op, {accuracy_epoch: train_tp, inp: trainx[:FLAGS.batch_size]})
+            '''/////epoch summary/////'''
+            sm = sess.run(sum_epoch_op, {accuracy_epoch: train_tp,
+                                             inp: trainx[:FLAGS.batch_size],
+                                             lbl:trainy[:FLAGS.batch_size],
+                                             is_training_pl: False})
             train_writer.add_summary(sm, epoch)
             x = np.random.randint(0,testx.shape[0]-FLAGS.batch_size) # random batch extracted in testx
-            sm = sess.run(sum_epoch_op, {accuracy_epoch: test_tp, inp: testx[x:x+FLAGS.batch_size]})
+            sm = sess.run(sum_epoch_op, {accuracy_epoch: test_tp,
+                                         inp: testx[x:x+FLAGS.batch_size],
+                                         lbl: testy[x:x+FLAGS.batch_size],
+                                         is_training_pl:False})
             test_writer.add_summary(sm, epoch)
-
             print("Epoch %d, Train batch %d, time = %ds : loss train = %.4f, train acc = %.4f, ""test acc = %.4f" %
                   (epoch, train_batch, time.time() - begin, train_loss, train_tp, test_tp))
 
