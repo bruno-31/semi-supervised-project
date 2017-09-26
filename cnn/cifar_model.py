@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+
 def gaussian_noise_layer(input_layer, std):
     noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
     return input_layer + noise
@@ -18,23 +19,23 @@ def _leakyReLu_impl(x, alpha):
 
 
 def inference(inp, is_training):
-
+    
+    activation = leakyReLu
     x = inp
-
     x = gaussian_noise_layer(x, std=0.15)
 
     with tf.variable_scope('conv_1'):
         x = tf.layers.conv2d(x,96,3,padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_2'):
         x = tf.layers.conv2d(x,96,3,padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_3'):
         x = tf.layers.conv2d(x,96,3,padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
 
     x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
     x = tf.layers.dropout(x,0.5,training=is_training)
@@ -42,15 +43,15 @@ def inference(inp, is_training):
     with tf.variable_scope('conv_4'):
         x = tf.layers.conv2d(x, 192, 3, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_5'):
         x = tf.layers.conv2d(x, 192, 3, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_6'):
         x = tf.layers.conv2d(x, 192, 3, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
 
     x = tf.layers.max_pooling2d(x, 2, 2, padding='SAME')
     x = tf.layers.dropout(x, 0.5, training=is_training)
@@ -58,15 +59,15 @@ def inference(inp, is_training):
     with tf.variable_scope('conv_7'):
         x = tf.layers.conv2d(x, 192, 3, padding='VALID')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_8'):
         x = tf.layers.conv2d(x, 192, 1, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
     with tf.variable_scope('conv_9'):
         x = tf.layers.conv2d(x, 192, 1, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
-        x = leakyReLu(x)
+        x = activation(x)
 
     x = tf.layers.average_pooling2d(x,pool_size=6,strides=1)
     x = tf.squeeze(x)
