@@ -12,7 +12,7 @@ flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('log_dir', './log', 'log directory')
 flags.DEFINE_integer('seed', 1546, 'seed ')
 flags.DEFINE_integer('seed_data', 64, 'seed data')
-flags.DEFINE_integer('labeled', 400, 'labeled')
+flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
 FLAGS = flags.FLAGS
 
@@ -22,8 +22,8 @@ def main(_):
         os.mkdir(FLAGS.log_dir)
 
     # Random seed
-    rng = np.random.RandomState(FLAGS.seed) # seed labels
-    rng_data = np.random.RandomState(FLAGS.seed_data) # seed shuffling
+    rng = np.random.RandomState(FLAGS.seed)  # seed labels
+    rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
 
     # load CIFAR-10
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
@@ -40,30 +40,44 @@ def main(_):
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     learning_rate_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
 
-    with tf.variable_scope('generator'):
+    with tf.variable_scope('generator_model'):
         gen_inp = cifar_gan.generator(z_seed, is_training_pl)
 
-    with tf.variable_scope('discriminator') as dis_scope:
-        logits_lab = cifar_gan.discriminator(inp, is_training_pl)
+    with tf.variable_scope('discriminator_model') as dis_scope:
+        logits_lab, _ = cifar_gan.discriminator(inp, is_training_pl)
         dis_scope.reuse_variables()
-        logits_unl = cifar_gan.discriminator(inp, is_training_pl)
-        logits_fake = cifar_gan.discriminator(inp, is_training_pl)
+        logits_unl, layer_real = cifar_gan.discriminator(inp, is_training_pl)
+        logits_fake, layer_fake = cifar_gan.discriminator(inp, is_training_pl)
 
-    with tf.name_scope('loss_function'):
-        z_exp_lab = T.mean(nn.log_sum_exp(logits_lab))
-        z_exp_unl = T.mean(nn.log_sum_exp(logits_unl))
-        z_exp_fake = T.mean(nn.log_sum_exp(logits_fake))
-        l_lab = logits_lab[T.arange(batch_size), labels]
-        l_unl = nn.log_sum_exp(output_before_softmax_unl)
+    with tf.name_scope('loss_functions'):
+        # Taken from improved gan, T. Salimans
+        with tf.name_scope('discriminator'):
+            l_lab = logits_lab[:, tf.argmax(lbl, axis=1)]
+            loss_lab = - tf.reduce_mean(l_lab) + tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
+            loss_unl = - 0.5 * tf.reduce_mean(tf.reduce_logsumexp(logits_unl, axis=1)) \
+                       + 0.5 * tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_unl, axis=1))) \
+                       + 0.5 * tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_fake, axis=1)))
+            correct_pred = tf.equal(tf.argmax(logits_lab,1), tf.argmax(lbl,1))
+            accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        with tf.name_scope('generator'):
+            loss_gen = tf.reduce_mean(tf.square(layer_real-layer_fake))
 
-        loss_lab = -T.mean(l_lab) + T.mean(z_exp_lab)
-        loss_unl = -0.5 * T.mean(l_unl) + \
-                    0.5 * T.mean(T.nnet.softplus(nn.log_sum_exp(logits_unl))) +\
-                    0.5 * T.mean(T.nnet.softplus(nn.log_sum_exp(logits_fake)))
+    with tf.name_scope('optimizers'):
+        # control op dependencies for batch norm and trainable variables
+        tvars = tf.trainable_variables()
+        dvars = [var for var in tvars if 'discriminator_model' in var.name]
+        gvars = [var for var in tvars if 'generator_model' in var.name]
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_pl, beta1=0.9)
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
+        update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
 
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_pl, beta1=0.9)
 
+        with tf.control_dependencies(update_ops_dis):
+            train_dis_op = optimizer.minimize(loss_lab+loss_unl, var_list=dvars, name='dis_optimizer')
+        with tf.control_dependencies(update_ops_gen):
+            train_gen_op = optimizer.minimize(loss_gen, var_list=gvars, name='gen_optimizer')
 
     # select labeled data
     inds = rng_data.permutation(trainx.shape[0])
@@ -108,7 +122,7 @@ def main(_):
                              lbl: trainy[ran_from:ran_to],
                              unl: trainx_unl[ran_from:ran_to]}
 
-                sess.run(train_discriminator,feed_dict=feed_dict)
+                sess.run(train_discriminator, feed_dict=feed_dict)
 
                 loss_lab += ll
                 loss_unl += lu
@@ -122,7 +136,6 @@ def main(_):
                 loss_unl /= nr_batches_train
                 train_err /= nr_batches_train
 
-
             for t in range(nr_batches_test):
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
@@ -134,9 +147,9 @@ def main(_):
 
             test_tp /= testx.shape[0]
 
-
             print("Epoch %d--Batch %d--Time = %ds | loss train = %.4f | train acc = %.4f | test acc = %.4f" %
                   (epoch, train_batch, time.time() - begin, train_loss, train_tp, test_tp))
+
 
 if __name__ == '__main__':
     tf.app.run()

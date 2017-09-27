@@ -65,6 +65,9 @@ def discriminator(inp, is_training):
         x = tf.layers.conv2d(x, 192, 1, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
         x = activation(x)
+
+        intermediate_layer = x
+
     with tf.variable_scope('conv_9'):
         x = tf.layers.conv2d(x, 192, 1, padding='SAME')
         x = tf.layers.batch_normalization(x, training=is_training)
@@ -74,29 +77,30 @@ def discriminator(inp, is_training):
     x = tf.squeeze(x)
 
     with tf.variable_scope('fc'):
-        y = tf.layers.dense(x, units=10, activation=None)
+        logits = tf.layers.dense(x, units=10, activation=None)
 
-    return y
+
+
+    return logits, intermediate_layer
 
 
 def generator(z_seed, is_training):
     x = z_seed
-
     with tf.variable_scope('dense'):
         x = tf.layers.dense(x, 4 * 4 * 512, name='fc1', activation=tf.nn.relu, kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, is_training)
+        x = tf.layers.batch_normalization(x,training=is_training)
 
     x = tf.reshape(x, [-1, 4, 4, 512])
 
     with tf.variable_scope('deconv_1'):
         x = tf.layers.conv2d_transpose(x, 256, 5, 2, padding='SAME', name='deconv1', activation=tf.nn.relu,
                                        kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, is_training)
+        x = tf.layers.batch_normalization(x, training=is_training)
 
     with tf.variable_scope('deconv_2'):
         x = tf.layers.conv2d_transpose(x, 128, 5, 2, padding='SAME', name='deconv2', activation=tf.nn.relu,
                                        kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, is_training)
+        x = tf.layers.batch_normalization(x, training=is_training)
 
     with tf.variable_scope('deconv_3'):
         x = tf.layers.conv2d_transpose(x, 3, 5, 2, padding='SAME', name='output_generator', activation=tf.nn.tanh,
