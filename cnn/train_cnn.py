@@ -4,7 +4,7 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from data import cifar10_input
+import cifar10_input
 import cifar_model
 
 flags = tf.app.flags
@@ -36,15 +36,20 @@ def zca_whiten(X, Y, epsilon=1e-5):
     return X_white, Y_white
 
 
-def decayed_lr(batch):
+def decayed_lr(epoch):
     '''
     compute decayed learning rate : for the last 100 epochs the learning rate
     is linearly decayed to zero.
     '''
-    if batch >= 100:
-        return FLAGS.learning_rate * (2 - batch / 100)
-
+    if epoch >= 100:
+        return FLAGS.learning_rate * (2 - epoch / 100)
     return FLAGS.learning_rate
+
+
+def momentum(epoch):
+    if epoch >= 100:
+        return 0.5
+    return 0.9
 
 
 def main(_):
@@ -73,7 +78,7 @@ def main(_):
     # trainx /= std
     testx -= m
     # testx /= std
-    # trainx, testx = zca_whiten(trainx, testx, epsilon=0.1)
+    trainx, testx = zca_whiten(trainx, testx, epsilon=1e-8)
     print('Preprocessing done in : %ds' % (time.time() - begin))
 
     '''construct graph'''
@@ -81,7 +86,8 @@ def main(_):
     lbl = tf.placeholder(tf.float32, [FLAGS.batch_size, 10], name='lbl_input')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     accuracy_epoch = tf.placeholder(tf.float32, [], name='epoch_pl')
-    learning_rate_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
+    adam_learning_rate_pl = tf.placeholder(tf.float32, [], name='adam_learning_rate_pl')
+    adam_momentum_pl = tf.placeholder(tf.float32, [], name='adam_momentum_pl')
 
     with tf.variable_scope('cnn_model'):
         logits = cifar_model.inference(inp, is_training_pl)
@@ -93,9 +99,9 @@ def main(_):
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
         eval_correct = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_pl, beta1=0.9)
+    optimizer = tf.train.AdamOptimizer(learning_rate=adam_learning_rate_pl, beta1=adam_momentum_pl)
 
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) # control dependencies for batch norm ops
     with tf.control_dependencies(update_ops):
         train_op = optimizer.minimize(loss)
 
@@ -103,7 +109,8 @@ def main(_):
     with tf.name_scope('per_batch_summary'):
         tf.summary.scalar('loss', loss, ['batch'])
         tf.summary.scalar('accuracy', accuracy, ['batch'])
-        tf.summary.scalar('learning rate', learning_rate_pl, ['batch'])
+        tf.summary.scalar('adam learning rate', adam_learning_rate_pl, ['batch'])
+        tf.summary.scalar('adam momentum', adam_momentum_pl, ['batch'])
 
     with tf.name_scope('per_epoch_summary'):
         tf.summary.scalar('accuracy epoch', accuracy_epoch, ['per_epoch'])
@@ -111,9 +118,9 @@ def main(_):
                          ['per_epoch'])
         with tf.name_scope('input_data'):
             tf.summary.image('input image', inp, 10, ['per_epoch'])
-            tf.summary.histogram('first input image', tf.reshape(inp[0],[-1]), ['per_epoch'])
-            tf.summary.histogram('input labels', tf.argmax(lbl, axis=1),['per_epoch'])
-            tf.summary.histogram('output logits', tf.argmax(logits, axis=0),['per_epoch'])
+            tf.summary.histogram('first input image', tf.reshape(inp[0], [-1]), ['per_epoch'])
+            tf.summary.histogram('input labels', tf.argmax(lbl, axis=1), ['per_epoch'])
+            tf.summary.histogram('output logits', tf.argmax(logits, axis=0), ['per_epoch'])
 
     sum_op = tf.summary.merge_all('batch')
     sum_epoch_op = tf.summary.merge_all('per_epoch')
@@ -121,7 +128,7 @@ def main(_):
     '''//////perform training //////'''
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
-        sess.run(init)
+        sess.run(init,{adam_momentum_pl:0.9})
         train_batch = 0
         train_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'train'), sess.graph)
         test_writer = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'test'), sess.graph)
@@ -142,7 +149,9 @@ def main(_):
                 feed_dict = {inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              is_training_pl: True,
-                             learning_rate_pl: decayed_lr(epoch)}
+                             adam_learning_rate_pl: decayed_lr(epoch),
+                             adam_momentum_pl: momentum(epoch)}
+
                 _, ls, tp, sm = sess.run([train_op, loss, eval_correct, sum_op], feed_dict=feed_dict)
 
                 train_loss += ls
@@ -166,18 +175,19 @@ def main(_):
 
             '''/////epoch summary/////'''
             sm = sess.run(sum_epoch_op, {accuracy_epoch: train_tp,
-                                             inp: trainx[:FLAGS.batch_size],
-                                             lbl:trainy[:FLAGS.batch_size],
-                                             is_training_pl: False})
+                                         inp: trainx[:FLAGS.batch_size],
+                                         lbl: trainy[:FLAGS.batch_size],
+                                         is_training_pl: False})
             train_writer.add_summary(sm, epoch)
-            x = np.random.randint(0,testx.shape[0]-FLAGS.batch_size) # random batch extracted in testx
+            x = np.random.randint(0, testx.shape[0] - FLAGS.batch_size)  # random batch extracted in testx
             sm = sess.run(sum_epoch_op, {accuracy_epoch: test_tp,
-                                         inp: testx[x:x+FLAGS.batch_size],
-                                         lbl: testy[x:x+FLAGS.batch_size],
-                                         is_training_pl:False})
+                                         inp: testx[x:x + FLAGS.batch_size],
+                                         lbl: testy[x:x + FLAGS.batch_size],
+                                         is_training_pl: False})
             test_writer.add_summary(sm, epoch)
             print("Epoch %d--Batch %d--Time = %ds | loss train = %.4f | train acc = %.4f | test acc = %.4f" %
                   (epoch, train_batch, time.time() - begin, train_loss, train_tp, test_tp))
+
 
 if __name__ == '__main__':
     tf.app.run()
