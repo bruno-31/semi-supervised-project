@@ -7,12 +7,11 @@ import mnist_gan
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
-flags.DEFINE_integer("moving_average", 100, "moving average [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('log_dir', './log', 'log directory')
 flags.DEFINE_integer('seed', 1546, 'seed ')
 flags.DEFINE_integer('seed_data', 64, 'seed data')
-flags.DEFINE_integer('labeled', 400, 'labeled')
+flags.DEFINE_integer('labeled', 100, 'labeled')
 flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
 FLAGS = flags.FLAGS
 
@@ -64,23 +63,21 @@ def main(_):
         logits_unl, layer_real = mnist_gan.discriminator(unl, is_training_pl)
         logits_fake, layer_fake = mnist_gan.discriminator(gen_inp, is_training_pl)
 
-    print(lbl)
-    print(logits_lab)
-
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
         with tf.name_scope('discriminator'):
-            idx = tf.transpose(tf.stack([lbl, tf.cast(tf.range(0,FLAGS.batch_size), tf.int32)]))
-            l_lab = tf.gather_nd(logits_lab, idx)
-            loss_lab = - tf.reduce_mean(l_lab) + tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
-            loss_unl = - 0.5 * tf.reduce_mean(tf.reduce_logsumexp(logits_unl, axis=1)) \
-                       + 0.5 * tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_unl, axis=1))) \
-                       + 0.5 * tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_fake, axis=1)))
+            loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
+            l_unl = tf.reduce_logsumexp(logits_fake, axis=1)
+            l_gen = tf.reduce_logsumexp(logits_unl, axis=1)
+            loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
+                       + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
+                       + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
             correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab,1),tf.int32), tf.cast(lbl,tf.int32))
             accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
         with tf.name_scope('generator'):
             loss_gen = tf.reduce_mean(tf.square(layer_real-layer_fake))
+
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -156,7 +153,8 @@ def main(_):
                              lbl: testy[ran_from:ran_to],
                              is_training_pl: False}
                 test_acc += sess.run(accuracy, feed_dict=feed_dict)
-            test_acc /= testx.shape[0]
+
+            test_acc /= nr_batches_test
 
             print("Epoch %d--Time = %ds | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
