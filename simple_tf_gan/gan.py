@@ -6,12 +6,12 @@ import shutil
 import os
 import conv_model
 
-max_iter = 10
+max_iter = 10000
 batch_size = 256
 output_path = 'output'
 log_path = 'log'
-freq_print = 1
-freq_save = 1000
+freq_print = 10
+freq_save = 100
 KEEP_RATE = 0.7
 IM_HEIGHT = 28
 IM_WIDTH = 28
@@ -156,7 +156,7 @@ def main(_):
             sess.run(d_trainer, feed_dict={x_data: x_batch, keep_pl: KEEP_RATE})
             sess.run(g_trainer, feed_dict={x_data: x_batch, keep_pl: KEEP_RATE})
 
-            if i % 1 == 0:
+            if i % 100 == 0:
                 print("step %d" % (i))
 
             if i % freq_print == 0:
@@ -165,7 +165,7 @@ def main(_):
 
             if i % freq_save == 0:
                 sample_images = sess.run(x_generated, feed_dict={x_data: x_batch, keep_pl: KEEP_RATE})
-                store_result(sample_images, os.path.join(FLAGS.out_dir, "sample%s.jpg" % i))
+                # store_result(sample_images, os.path.join(FLAGS.out_dir, "sample%s.jpg" % i))
                 #   saver.save(sess, os.path.join(output_path, "model"), global_step=global_step)
 
         # im_g_sample = sess.run(x_generated)
