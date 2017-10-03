@@ -29,7 +29,7 @@ def main(_):
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data')
     # load MNIST data
-    data = np.load('mnist.npz')
+    data = np.load('../data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
     # trainx = 2 * trainx - 1 # set to [-1 1] dynamic  [bruno]
     trainx_unl = trainx.copy()

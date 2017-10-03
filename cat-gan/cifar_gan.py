@@ -84,10 +84,12 @@ def discriminator(inp, is_training):
     return logits, intermediate_layer
 
 
-def generator(z_seed, is_training):
-    x = z_seed
+def generator(batch_size, is_training):
+
+    z_seed = tf.random_uniform([batch_size,100])
+
     with tf.variable_scope('dense'):
-        x = tf.layers.dense(x, 4 * 4 * 512, name='fc1', activation=tf.nn.relu, kernel_initializer=init_kernel)
+        x = tf.layers.dense(z_seed, 4 * 4 * 512, name='fc1', activation=tf.nn.relu, kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
 
     x = tf.reshape(x, [-1, 4, 4, 512])

@@ -3,11 +3,11 @@ import os
 
 import numpy as np
 import tensorflow as tf
-from hyperparam import *
+from gan.preprocessing import unaply
 
 import cifar10_input
 from gan import cifar_openai
-from gan.preprocessing import unaply
+from hyperparam import *
 
 global _wrapped_ops
 _wrapped_ops = set()
