@@ -6,25 +6,27 @@ import mnist_gan
 from conv_model_improved import *
 
 flags = tf.app.flags
-flags.DEFINE_integer("batch_size", 100, "batch size [128]")
+flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
-flags.DEFINE_string('log_dir', './log', 'log directory')
+flags.DEFINE_string('logdir', './log2', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
-flags.DEFINE_integer('labeled', 100, 'labeled image per class[100]')
+flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
+flags.DEFINE_integer('labeled', 10, 'labeled image per class[100]')
 flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
-flags.DEFINE_float('lbl_weight', 0, 'unlabeled weight [1.]')
+flags.DEFINE_float('unl_weight', 0.6, 'unlabeled weight [1.]')
 FLAGS = flags.FLAGS
 
-FREQ_PRINT = 20
+FREQ_PRINT = 200
 
 def main(_):
-    if not os.path.exists(FLAGS.log_dir):
-        os.mkdir(FLAGS.log_dir)
+    if not os.path.exists(FLAGS.logdir):
+        os.mkdir(FLAGS.logdir)
 
     # Random seed
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
+    tf.set_random_seed(FLAGS.seed_tf)
     print('loading data')
     # load MNIST data
     data = np.load('mnist.npz')
@@ -68,13 +70,13 @@ def main(_):
     dis = mnist_gan.discriminator
 
     with tf.variable_scope('generator_model'):
-        gen_inp = gen(z_seed, is_training_pl)
+        gen_inp = gen(batch_size=FLAGS.batch_size, is_training=is_training_pl)
 
     with tf.variable_scope('discriminator_model') as dis_scope:
-        logits_lab = dis(inp)
+        logits_lab,_ = dis(inp)
         dis_scope.reuse_variables()
-        logits_unl = dis(unl)
-        logits_fake = dis(gen_inp)
+        logits_unl, layer_real = dis(unl)
+        logits_fake, layer_fake = dis(gen_inp)
 
 
     with tf.name_scope('loss_functions'):
@@ -89,21 +91,19 @@ def main(_):
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        # loss_dis = loss_unl + FLAGS.lbl_weight * loss_lab
-        loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones(FLAGS.batch_size)*0.9, logits=logits_unl[:,0]))
-        loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros(FLAGS.batch_size), logits=logits_fake[:,0]))
-        loss_dis = loss_real+loss_fake
+        loss_dis = FLAGS.unl_weight * loss_unl +  loss_lab
+
         accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         # GENERATOR
-        # m1 = tf.reduce_mean(layer_real, axis=0)
-        # m2 = tf.reduce_mean(layer_fake, axis=0)
-        # loss_gen = tf.reduce_mean(tf.square(m1-m2))
+        m1 = tf.reduce_mean(layer_real, axis=0)
+        m2 = tf.reduce_mean(layer_fake, axis=0)
+        loss_gen = tf.reduce_mean(tf.square(m1-m2))
         # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
         #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
-        loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones(FLAGS.batch_size)*0.9, logits=logits_fake[:,0]))
+        # loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones(FLAGS.batch_size)*0.9, logits=logits_fake[:,0]))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -127,10 +127,9 @@ def main(_):
         tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
         tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
         tf.summary.scalar('cls_accuracy', accuracy, ['dis'])
-        tf.summary.scalar('dis_accuracy', accuracy_dis, ['dis'])
+        tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
         tf.summary.scalar('loss_dis',loss_dis,['dis'])
-        tf.summary.scalar('loss_real', loss_real, ['dis'])
-        tf.summary.scalar('loss_fake', loss_fake, ['dis'])
+
 
     with tf.name_scope('gen_summary'):
         tf.summary.scalar('loss_generator', loss_gen, ['gen'])
@@ -143,8 +142,8 @@ def main(_):
         tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
     with tf.name_scope('image_summary'):
-        tf.summary.image('input_digits', tf.reshape(inp, [-1, 28, 28, 1]), 10, ['image'])
-        tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 10, ['image'])
+        tf.summary.image('input_digits', tf.reshape(inp, [-1, 28, 28, 1]), 20, ['image'])
+        tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
 
     sum_op_dis = tf.summary.merge_all('dis')
     sum_op_gen = tf.summary.merge_all('gen')
@@ -157,7 +156,7 @@ def main(_):
         init = tf.global_variables_initializer()
         sess.run(init)
 
-        writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
+        writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
         for epoch in range(200):
             begin = time.time()
@@ -183,7 +182,6 @@ def main(_):
                 feed_dict = {inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              unl: trainx_unl[ran_from:ran_to],
-                             z_seed: np.random.randn(FLAGS.batch_size, 100),
                              is_training_pl: False}
                 _, ll, lu, acc, sm = sess.run([train_dis_op, loss_lab, loss_unl, accuracy, sum_op_dis],
                                               feed_dict=feed_dict)
@@ -194,16 +192,13 @@ def main(_):
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl[ran_from:ran_to],
-                                                                                      z_seed: np.random.randn(
-                                                                                          FLAGS.batch_size, 100),
                                                                                       is_training_pl: True})
                 train_loss_gen += lg
                 writer.add_summary(sm, train_batch)
 
                 if t % FREQ_PRINT == 0:
                     sm = sess.run(sum_op_im, feed_dict={inp: trainx[ran_from:ran_to],
-                                                        is_training_pl: False,
-                                                        z_seed:np.random.randn(FLAGS.batch_size, 100)})
+                                                        is_training_pl: False})
                     writer.add_summary(sm, train_batch)
 
                 train_batch += 1
@@ -223,11 +218,8 @@ def main(_):
 
             test_acc /= nr_batches_test
 
-            sum = sess.run(sum_op_epoch, feed_dict={inp: trainx[ran_from:ran_to],
-                                                    is_training_pl: False,
-                                                    acc_train_pl: train_acc,
-                                                    acc_test_pl: test_acc,
-                                                    z_seed:np.random.randn(FLAGS.batch_size, 100)})
+            sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
+                                                    acc_test_pl: test_acc})
             writer.add_summary(sum, epoch)
 
             print("Epoch %d--Time = %ds | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
