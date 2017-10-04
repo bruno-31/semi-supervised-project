@@ -72,38 +72,35 @@ def main(_):
         gen_inp = gen(batch_size=FLAGS.batch_size, is_training=is_training_pl)
 
     with tf.variable_scope('discriminator_model') as dis_scope:
-        logits_lab,_ = dis(inp)
+        logits_lab,_,_ = dis(inp)
         dis_scope.reuse_variables()
-        logits_unl, layer_real = dis(unl)
-        logits_fake, layer_fake = dis(gen_inp)
+        _, logits_gan_unl, layer_real = dis(unl)
+        _, logits_gan_gen, layer_fake = dis(gen_inp)
 
 
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
-        # a = tf.reduce_max(logits_unl,axis=1)
-        l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
-        l_gen = tf.reduce_logsumexp(logits_fake, axis=1)
-
-        logits_gan_unl =
-
         # DISCRIMINATOR
-        loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
-        loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
-                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
-                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
+        loss_lab = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            labels=tf.one_hot(lbl,11), logits=logits_lab))
+        loss_unl_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=tf.ones_like(logits_gan_unl), logits=logits_gan_unl))
+        loss_unl_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=tf.zeros_like(logits_gan_gen), logits=logits_gan_gen))
+        loss_unl = loss_unl_fake + loss_unl_real
         loss_dis = FLAGS.unl_weight * loss_unl +  loss_lab
 
-        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32)) #mistake
+        accuracy_dis = tf.reduce_mean(tf.cast(tf.greater(logits_gan_unl, 0), tf.float32)+
+                                      tf.cast(tf.less(logits_gan_gen, 0), tf.float32)) #mistake
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         # GENERATOR
-        m1 = tf.reduce_mean(layer_real, axis=0)
-        m2 = tf.reduce_mean(layer_fake, axis=0)
-        loss_gen = tf.reduce_mean(tf.square(m1-m2))
-        # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
-        #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32)) # mistake
-        # loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones(FLAGS.batch_size)*0.9, logits=logits_fake[:,0]))
+        # m1 = tf.reduce_mean(layer_real, axis=0)
+        # m2 = tf.reduce_mean(layer_fake, axis=0)
+        # loss_gen = tf.reduce_mean(tf.square(m1-m2))
+        loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=tf.ones_like(logits_gan_unl), logits=logits_gan_gen))
+        fool_rate = tf.reduce_mean(tf.cast(tf.less(logits_gan_gen, 0), tf.float32)) # mistake
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -134,8 +131,7 @@ def main(_):
     with tf.name_scope('gen_summary'):
         tf.summary.scalar('loss_generator', loss_gen, ['gen'])
         tf.summary.scalar('fool_rate', fool_rate, ['gen'])
-        tf.summary.histogram('logits_generated', l_gen, ['gen'])
-        tf.summary.histogram('logits_unlabeled_data', l_unl, ['gen'])
+
 
     with tf.name_scope('epoch_summary'):
         tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
