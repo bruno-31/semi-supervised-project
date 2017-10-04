@@ -6,18 +6,20 @@ import mnist_gan
 from conv_model_improved import *
 
 flags = tf.app.flags
+FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
-flags.DEFINE_string('logdir', './log2', 'log directory')
+flags.DEFINE_string('logdir', './log', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
 flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
 flags.DEFINE_integer('labeled', 10, 'labeled image per class[100]')
-flags.DEFINE_float('learning_rate', 0.003, 'learning_rate[0.003]')
-flags.DEFINE_float('unl_weight', 0.6, 'unlabeled weight [1.]')
-FLAGS = flags.FLAGS
+flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
+flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
+flags.DEFINE_float('unl_weight', 1, 'unlabeled weight [1.]')
+flags.DEFINE_float('lbl_weight', 1, 'labeled weight [1.]')
 
-FREQ_PRINT = 200
+FREQ_PRINT = 1000
 
 def main(_):
     if not os.path.exists(FLAGS.logdir):
@@ -88,10 +90,12 @@ def main(_):
         loss_unl_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=tf.zeros_like(logits_gan_gen), logits=logits_gan_gen))
         loss_unl = loss_unl_fake + loss_unl_real
-        loss_dis = FLAGS.unl_weight * loss_unl +  loss_lab
+        loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
 
-        accuracy_dis = tf.reduce_mean(tf.cast(tf.greater(logits_gan_unl, 0), tf.float32)+
-                                      tf.cast(tf.less(logits_gan_gen, 0), tf.float32)) #mistake
+
+        accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_gan_unl, 0), tf.float32))
+        accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gan_gen, 0), tf.float32))
+        accuracy_dis = 0.5 * accuracy_dis_unl + 0.5* accuracy_dis_gen
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         # GENERATOR
@@ -99,8 +103,8 @@ def main(_):
         # m2 = tf.reduce_mean(layer_fake, axis=0)
         # loss_gen = tf.reduce_mean(tf.square(m1-m2))
         loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=tf.ones_like(logits_gan_unl), logits=logits_gan_gen))
-        fool_rate = tf.reduce_mean(tf.cast(tf.less(logits_gan_gen, 0), tf.float32)) # mistake
+            labels=tf.ones_like(logits_gan_gen), logits=logits_gan_gen))
+        fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gan_gen, 0), tf.float32))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -112,18 +116,28 @@ def main(_):
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
         update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
 
-        optimizer_dis = tf.train.AdamOptimizer(learning_rate=0.003, beta1=0.5, name='dis_optimizer')
-        optimizer_gen = tf.train.AdamOptimizer(learning_rate=0.003, beta1=0.5, name='gen_optimizer')
+        optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
+        optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
-        with tf.control_dependencies(update_ops_dis):
-            train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
+        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
+
+        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        maintain_averages_op = ema.apply(dvars)
+        with tf.control_dependencies([train_dis_op]):
+            training_op = tf.group(maintain_averages_op)
+
+        av = [ema.average(x) for x in dvars]
+        assign_op = tf.assign(dvars, av)
+
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
+
+
 
     with tf.name_scope('dis_summary'):
         tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
         tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
-        tf.summary.scalar('cls_accuracy', accuracy, ['dis'])
+        tf.summary.scalar('classifier_accuracy', accuracy, ['dis'])
         tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
         tf.summary.scalar('loss_dis',loss_dis,['dis'])
 
@@ -138,7 +152,7 @@ def main(_):
         tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
     with tf.name_scope('image_summary'):
-        tf.summary.image('input_digits', tf.reshape(inp, [-1, 28, 28, 1]), 20, ['image'])
+        # tf.summary.image('input_digits', tf.reshape(inp, [-1, 28, 28, 1]), 20, ['image'])
         tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
 
     sum_op_dis = tf.summary.merge_all('dis')
@@ -179,7 +193,7 @@ def main(_):
                              lbl: trainy[ran_from:ran_to],
                              unl: trainx_unl[ran_from:ran_to],
                              is_training_pl: False}
-                _, ll, lu, acc, sm = sess.run([train_dis_op, loss_lab, loss_unl, accuracy, sum_op_dis],
+                _, ll, lu, acc, sm = sess.run([training_op, loss_lab, loss_unl, accuracy, sum_op_dis],
                                               feed_dict=feed_dict)
                 train_loss_lab += ll
                 train_loss_unl += lu
@@ -204,6 +218,8 @@ def main(_):
             train_acc /= nr_batches_train
 
             # Testing
+            sess.run(assign_op)
+            print('moving average op')
             for t in range(nr_batches_test):
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
