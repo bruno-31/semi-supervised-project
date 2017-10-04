@@ -59,7 +59,6 @@ def main(_):
     '''construct graph'''
     print('constructing graph')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='labeled_data_input_pl')
-    z_seed = tf.placeholder(tf.float32, [FLAGS.batch_size, 100], 'z_seed_pl')
     unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
@@ -81,11 +80,12 @@ def main(_):
 
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
+        # a = tf.reduce_max(logits_unl,axis=1)
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_fake, axis=1)
 
-        # l_unl=tf.clip_by_value(l_unl,1e-8,1e8)
-        # l_gen=tf.clip_by_value(l_gen,1e-8,1e8)
+        logits_gan_unl =
+
         # DISCRIMINATOR
         loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
@@ -93,7 +93,7 @@ def main(_):
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
         loss_dis = FLAGS.unl_weight * loss_unl +  loss_lab
 
-        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
+        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32)) #mistake
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         # GENERATOR
@@ -102,7 +102,7 @@ def main(_):
         loss_gen = tf.reduce_mean(tf.square(m1-m2))
         # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
         #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
+        fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32)) # mistake
         # loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones(FLAGS.batch_size)*0.9, logits=logits_fake[:,0]))
 
     with tf.name_scope('optimizers'):
@@ -191,7 +191,7 @@ def main(_):
                 writer.add_summary(sm, train_batch)
 
                 # train generator
-                _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl[ran_from:ran_to],
+                _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
                                                                                       is_training_pl: True})
                 train_loss_gen += lg
                 writer.add_summary(sm, train_batch)
@@ -218,6 +218,7 @@ def main(_):
 
             test_acc /= nr_batches_test
 
+            # Plotting
             sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
                                                     acc_test_pl: test_acc})
             writer.add_summary(sum, epoch)
