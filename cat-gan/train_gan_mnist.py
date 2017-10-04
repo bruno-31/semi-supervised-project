@@ -79,6 +79,8 @@ def main(_):
         _, logits_gan_unl, layer_real = dis(unl)
         _, logits_gan_gen, layer_fake = dis(gen_inp)
 
+    with tf.variable_scope("model_test"):
+        logits_test,_,_ = dis(inp)
 
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
@@ -98,6 +100,8 @@ def main(_):
         accuracy_dis = 0.5 * accuracy_dis_unl + 0.5* accuracy_dis_gen
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        correct_pred_test = tf.equal(tf.cast(tf.argmax(logits_test, 1), tf.int32), tf.cast(lbl, tf.int32))
+        accuracy_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
         # GENERATOR
         # m1 = tf.reduce_mean(layer_real, axis=0)
         # m2 = tf.reduce_mean(layer_fake, axis=0)
@@ -111,7 +115,7 @@ def main(_):
         tvars = tf.trainable_variables()
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
-
+        testvars = [var for var in tvars if 'model_test' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
         update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
@@ -120,14 +124,14 @@ def main(_):
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
-
-        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        ema = tf.train.ExponentialMovingAverage(decay=0.999)
         maintain_averages_op = ema.apply(dvars)
+        update_param =
         with tf.control_dependencies([train_dis_op]):
             training_op = tf.group(maintain_averages_op)
 
-        av = [ema.average(x) for x in dvars]
-        assign_op = tf.assign(dvars, av)
+        avg_param = [ema.average(x)+x for x in dvars]
+        assign_op = [tf.assign(x,avg) for x,avg in zip(testvars,avg_param)]
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
@@ -219,14 +223,13 @@ def main(_):
 
             # Testing
             sess.run(assign_op)
-            print('moving average op')
             for t in range(nr_batches_test):
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
                 feed_dict = {inp: testx[ran_from:ran_to],
                              lbl: testy[ran_from:ran_to],
                              is_training_pl: False}
-                test_acc += sess.run(accuracy, feed_dict=feed_dict)
+                test_acc += sess.run(accuracy_test, feed_dict=feed_dict)
 
             test_acc /= nr_batches_test
 
