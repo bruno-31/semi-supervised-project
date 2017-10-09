@@ -83,7 +83,7 @@ def main(_):
         logits_gen, layer_fake = dis(gen_inp, deterministic=deterministic_pl)
 
     with tf.variable_scope("model_test"):
-        logits_test,_ = dis(inp)
+        logits_test,_ = dis(inp, deterministic=deterministic_pl)
 
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
