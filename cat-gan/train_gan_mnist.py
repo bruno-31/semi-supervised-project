@@ -33,11 +33,9 @@ def main(_):
     # load MNIST data
     data = np.load('../data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
-    # trainx = 2 * trainx - 1 # set to [-1 1] dynamic  [bruno]
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
     trainy = np.concatenate([data['y_train'], data['y_valid']]).astype(np.int32)
-    # trainy = 2 * trainy - 1 # set to [-1 1] dynamic  [bruno]
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
     testx = data['x_test'].astype(np.float32)
     testy = data['y_test'].astype(np.int32)
@@ -86,7 +84,7 @@ def main(_):
         logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
-        # Taken from improved gan, T. Salimans
+        # Improved gan, T. Salimans
         # DISCRIMINATOR
         z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
         rg = tf.cast(tf.range(0,FLAGS.batch_size), tf.int32)
@@ -101,9 +99,10 @@ def main(_):
 
         loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
 
-        # accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_gan_unl, 0), tf.float32))
-        # accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gan_gen, 0), tf.float32))
-        # accuracy_dis = 0.5 * accuracy_dis_unl + 0.5* accuracy_dis_gen
+        accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_unl, 0), tf.float32))
+        accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gen, 0), tf.float32))
+        accuracy_dis = 0.5 * accuracy_dis_unl + 0.5* accuracy_dis_gen
+
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         correct_pred_test = tf.equal(tf.cast(tf.argmax(logits_test, 1), tf.int32), tf.cast(lbl, tf.int32))
@@ -112,11 +111,7 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_gen =  tf.reduce_mean(tf.square(m1-m2))
-        # loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-        #     labels=tf.ones_like(logits_gan_gen), logits=logits_gan_gen))
-        # fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gan_gen, 0), tf.float32))
-
-        # fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gan_gen, 0), tf.float32))
+        fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gen, 0), tf.float32))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -134,10 +129,8 @@ def main(_):
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
         ema = tf.train.ExponentialMovingAverage(decay=0.9999)
         maintain_averages_op = ema.apply(dvars)
-        # with tf.control_dependencies([train_dis_op]):
-        #     training_op = tf.group(maintain_averages_op)
-        with tf.control_dependencies(update_ops_dis):
-            with tf.control_dependencies([train_dis_op]):
+
+        with tf.control_dependencies([train_dis_op]):
                 training_op = tf.group(maintain_averages_op)
 
         copy_graph = [tf.assign(x,ema.average(y)) for x,y in zip(testvars,dvars)]
@@ -146,49 +139,46 @@ def main(_):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
 
+    with tf.name_scope('summary'):
+        with tf.name_scope('dis_summary'):
+            tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
+            tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
+            tf.summary.scalar('classifier_accuracy', accuracy, ['dis'])
+            tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
+            tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
+            tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
+            tf.summary.scalar('loss_dis',loss_dis,['dis'])
 
-    with tf.name_scope('dis_summary'):
-        tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
-        tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
-        tf.summary.scalar('classifier_accuracy', accuracy, ['dis'])
-        # tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
-        tf.summary.scalar('loss_dis',loss_dis,['dis'])
+        with tf.name_scope('gen_summary'):
+            tf.summary.scalar('loss_generator', loss_gen, ['gen'])
+            tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
+        with tf.name_scope('epoch_summary'):
+            tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
+            tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
-    with tf.name_scope('gen_summary'):
-        tf.summary.scalar('loss_generator', loss_gen, ['gen'])
-        # tf.summary.scalar('fool_rate', fool_rate, ['gen'])
+        with tf.name_scope('image_summary'):
+            tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
 
-
-    with tf.name_scope('epoch_summary'):
-        tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
-        tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
-
-    with tf.name_scope('image_summary'):
-        # tf.summary.image('input_digits', tf.reshape(inp, [-1, 28, 28, 1]), 20, ['image'])
-        tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
-
-    sum_op_dis = tf.summary.merge_all('dis')
-    sum_op_gen = tf.summary.merge_all('gen')
-    sum_op_im = tf.summary.merge_all('image')
-    sum_op_epoch = tf.summary.merge_all('epoch')
+        sum_op_dis = tf.summary.merge_all('dis')
+        sum_op_gen = tf.summary.merge_all('gen')
+        sum_op_im = tf.summary.merge_all('image')
+        sum_op_epoch = tf.summary.merge_all('epoch')
 
     '''//////perform training //////'''
+    # saver = tf.train.Saver()
     print('start training')
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
-        feed_dict = {inp: trainx_unl[0:FLAGS.batch_size],
-                     lbl: tys[0:FLAGS.batch_size],
-                     unl: trainx_unl[0:FLAGS.batch_size],
-                     is_training_pl: True}
         #Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict=feed_dict)
+        sess.run(init, feed_dict={inp: trainx_unl[0:FLAGS.batch_size], is_training_pl: True})
         print('initialization done')
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
         for epoch in range(200):
             begin = time.time()
+
             # construct randomly permuted minibatches
             trainx = []
             trainy = []
@@ -226,15 +216,16 @@ def main(_):
                 writer.add_summary(sm, train_batch)
 
                 if t % FREQ_PRINT == 0:
-                    sm = sess.run(sum_op_im, feed_dict={inp: trainx[ran_from:ran_to],
-                                                        is_training_pl: True})
+                    sm = sess.run(sum_op_im, feed_dict={is_training_pl: False})
                     writer.add_summary(sm, train_batch)
-
                 train_batch += 1
-
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train
             train_acc /= nr_batches_train
+
+            # saver.save(sess, '/tmp/graph.checkpoint')
+            # print
+            # 'saved checkpoint'
 
             # Testing
             sess.run(copy_graph)
