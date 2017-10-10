@@ -77,8 +77,8 @@ def main(_):
     with tf.variable_scope('discriminator_model') as dis_scope:
         logits_lab,_ = dis(inp, deterministic=deterministic_pl)
         dis_scope.reuse_variables()
-        # logits_unl, logits_gan_unl, layer_real = dis(unl)
-        # logits_gen, logits_gan_gen, layer_fake = dis(gen_inp)
+        # logits_unl, logits_gan_unl, layer_real = dis(unl, deterministic=deterministic_pl)
+        # logits_gen, logits_gan_gen, layer_fake = dis(gen_inp, deterministic=deterministic_pl)
         logits_unl, layer_real = dis(unl, deterministic=deterministic_pl)
         logits_gen, layer_fake = dis(gen_inp, deterministic=deterministic_pl)
 
@@ -88,20 +88,17 @@ def main(_):
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
         # DISCRIMINATOR
-        # loss_lab = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-        #     labels=tf.one_hot(lbl,11), logits=logits_lab))
-        # loss_unl_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-        #     labels=tf.ones_like(logits_gan_unl), logits=logits_gan_unl))
-        # loss_unl_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-        #     labels=tf.zeros_like(logits_gan_gen), logits=logits_gan_gen))
-        # loss_unl = loss_unl_fake + loss_unl_real
-        l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
-        l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
-        loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
-        #TODO change loss_lab
-        loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
-                            +  0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
-                            +  0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
+        z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
+        rg = tf.cast(tf.range(0,FLAGS.batch_size), tf.int32)
+        idx = tf.stack([rg,lbl], axis=1)
+        l_lab = tf.gather_nd(logits_lab, idx)
+        loss_lab = -tf.reduce_mean(l_lab)+z_exp_lab
+
+        l_unl = tf.reduce_logsumexp(logits_unl,axis=1)
+        d = tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_unl,axis=1)), axis=0) + \
+            tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_gen,axis=1)),axis=0)
+        loss_unl = -0.5*tf.reduce_mean(l_unl) + 0.5*d
+
         loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
 
 
