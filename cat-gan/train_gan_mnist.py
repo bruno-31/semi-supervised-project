@@ -64,7 +64,6 @@ def main(_):
     unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
-    deterministic_pl = tf.placeholder(tf.bool, [], name='deterministic_pl')
     acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
@@ -74,16 +73,17 @@ def main(_):
     with tf.variable_scope('generator_model'):
         gen_inp = gen(batch_size=FLAGS.batch_size, is_training=is_training_pl)
 
-    with tf.variable_scope('discriminator_model') as dis_scope:
-        logits_lab,_ = dis(inp, deterministic=deterministic_pl)
-        dis_scope.reuse_variables()
-        # logits_unl, logits_gan_unl, layer_real = dis(unl, deterministic=deterministic_pl)
-        # logits_gen, logits_gan_gen, layer_fake = dis(gen_inp, deterministic=deterministic_pl)
-        logits_unl, layer_real = dis(unl, deterministic=deterministic_pl)
-        logits_gen, layer_fake = dis(gen_inp, deterministic=deterministic_pl)
+    with tf.variable_scope('discriminator_model') as scope:
+        init_weight_op, _ = dis(inp, is_training_pl, True)
+        scope.reuse_variables()
+        logits_lab, _ = dis(inp, is_training_pl)
+        logits_unl, layer_real = dis(unl, is_training_pl)
+        logits_gen, layer_fake = dis(gen_inp, is_training_pl)
 
-    with tf.variable_scope("model_test"):
-        logits_test,_ = dis(inp, deterministic=deterministic_pl)
+    with tf.variable_scope("model_test") as test_scope:
+        _,_ = dis(inp, is_training_pl,True)
+        test_scope.reuse_variables()
+        logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
@@ -100,7 +100,6 @@ def main(_):
         loss_unl = -0.5*tf.reduce_mean(l_unl) + 0.5*d
 
         loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
-
 
         # accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_gan_unl, 0), tf.float32))
         # accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gan_gen, 0), tf.float32))
@@ -135,9 +134,13 @@ def main(_):
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
         ema = tf.train.ExponentialMovingAverage(decay=0.9999)
         maintain_averages_op = ema.apply(dvars)
-        with tf.control_dependencies([train_dis_op]):
-            training_op = tf.group(maintain_averages_op)
-        copy_graph = [tf.assign(x,ema.average(y)+y) for x,y in zip(testvars,dvars)]
+        # with tf.control_dependencies([train_dis_op]):
+        #     training_op = tf.group(maintain_averages_op)
+        with tf.control_dependencies(update_ops_dis):
+            with tf.control_dependencies([train_dis_op]):
+                training_op = tf.group(maintain_averages_op)
+
+        copy_graph = [tf.assign(x,ema.average(y)) for x,y in zip(testvars,dvars)]
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
@@ -174,7 +177,13 @@ def main(_):
     print('start training')
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
-        sess.run(init)
+        feed_dict = {inp: trainx_unl[0:FLAGS.batch_size],
+                     lbl: tys[0:FLAGS.batch_size],
+                     unl: trainx_unl[0:FLAGS.batch_size],
+                     is_training_pl: True}
+        #Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
+        sess.run(init, feed_dict=feed_dict)
+        print('initialization done')
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
@@ -202,8 +211,7 @@ def main(_):
                 feed_dict = {inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              unl: trainx_unl[ran_from:ran_to],
-                             is_training_pl: False,
-                             deterministic_pl: False}
+                             is_training_pl: True}
                 _, ll, lu, acc, sm = sess.run([training_op, loss_lab, loss_unl, accuracy, sum_op_dis],
                                               feed_dict=feed_dict)
                 train_loss_lab += ll
@@ -213,15 +221,13 @@ def main(_):
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
-                                                                                      is_training_pl: True,
-                                                                                      deterministic_pl:False})
+                                                                                      is_training_pl: True})
                 train_loss_gen += lg
                 writer.add_summary(sm, train_batch)
 
                 if t % FREQ_PRINT == 0:
                     sm = sess.run(sum_op_im, feed_dict={inp: trainx[ran_from:ran_to],
-                                                        is_training_pl: False,
-                                                        deterministic_pl:False})
+                                                        is_training_pl: True})
                     writer.add_summary(sm, train_batch)
 
                 train_batch += 1
@@ -237,8 +243,7 @@ def main(_):
                 ran_to = (t + 1) * FLAGS.batch_size
                 feed_dict = {inp: testx[ran_from:ran_to],
                              lbl: testy[ran_from:ran_to],
-                             is_training_pl: False,
-                             deterministic_pl:True}
+                             is_training_pl: False}
                 test_acc += sess.run(accuracy_test, feed_dict=feed_dict)
 
             test_acc /= nr_batches_test
@@ -251,7 +256,6 @@ def main(_):
             print("Epoch %d--Time = %ds | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
                   % (epoch, time.time() - begin, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
-
 
 if __name__ == '__main__':
     tf.app.run()
