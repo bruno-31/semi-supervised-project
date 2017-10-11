@@ -18,8 +18,12 @@ flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
 flags.DEFINE_float('unl_weight', 1, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1, 'labeled weight [1.]')
-
 FREQ_PRINT = 1000
+FLAGS._parse_flags()
+print("\nParameters:")
+for attr, value in sorted(FLAGS.__flags.items()):
+    print("{}={}".format(attr.lower(), value))
+print("")
 
 def main(_):
     if not os.path.exists(FLAGS.logdir):
@@ -54,7 +58,7 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print('labeled digits : ', len(tys))
-    print(tys)
+
 
     '''construct graph'''
     print('constructing graph')
@@ -94,7 +98,7 @@ def main(_):
 
         l_unl = tf.reduce_logsumexp(logits_unl,axis=1)
         d = tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_unl,axis=1)), axis=0) + \
-            tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_gen,axis=1)),axis=0)
+            tf.reduce_mean(tf.nn.softplus(tf.reduce_logsumexp(logits_gen,axis=1)), axis=0)
         loss_unl = -0.5*tf.reduce_mean(l_unl) + 0.5*d
 
         loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab

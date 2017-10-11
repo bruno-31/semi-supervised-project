@@ -1,9 +1,12 @@
 import os
+import sys
 import time
 import numpy as np
 import tensorflow as tf
 from mnist_chi_gan import generator, discriminator
 from conv_model_improved import *
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -13,13 +16,15 @@ flags.DEFINE_string('logdir', './log', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
 flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
-flags.DEFINE_integer('labeled', 10, 'labeled image per class[100]')
-flags.DEFINE_float('learning_rate_d', 0.00003, 'learning_rate dis[0.003]')
-flags.DEFINE_float('learning_rate_g', 0.00003, 'learning_rate gen[0.003]')
-flags.DEFINE_float('unl_weight', 0., 'unlabeled weight [1.]')
-flags.DEFINE_float('lbl_weight', 1, 'labeled weight [1.]')
-flags.DEFINE_float('cat_gen_weight', 0., 'categorical generator weight [1.]')
 flags.DEFINE_integer('freq_print', 100, 'image summary frequency [100]')
+flags.DEFINE_boolean('enable_print', False, 'enable generated digits printing [F]')
+flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
+flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
+flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
+# weights loss
+flags.DEFINE_float('gen_cat_weight', 0.1, 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_bin_weight', 1., 'categorical generator weight [1.]')
+flags.DEFINE_float('f_match_weight', .5, 'categorical generator weight [0.]')
 
 FLAGS._parse_flags()
 print("\nParameters:")
@@ -28,8 +33,10 @@ for attr, value in sorted(FLAGS.__flags.items()):
 print("")
 
 
-def sigmoid(logits, labels):
-    return   -tf.reduce_sum(labels * tf.log(logits + 1e-10))
+def display_progression_epoch(j, id_max):
+    batch_progression = int((j / id_max) * 100)
+    sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
+    sys.stdout.flush
 
 
 def main(_):
@@ -40,7 +47,7 @@ def main(_):
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
     tf.set_random_seed(FLAGS.seed_tf)
-    print('loading data')
+    print('loading data  ... ')
     # load MNIST data
     data = np.load('../data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
@@ -66,7 +73,7 @@ def main(_):
     print('labeled digits : ', len(tys))
 
     '''construct graph'''
-    print('constructing graph')
+    print('construct graph')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='labeled_data_input_pl')
     unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
@@ -90,29 +97,27 @@ def main(_):
     with tf.variable_scope("model_test") as test_scope:
         dis(inp, is_training_pl, True)
         test_scope.reuse_variables()
-        logits_test, _, _ = dis(inp, is_training_pl, False)
+        _, logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
         xentropy = tf.nn.sparse_softmax_cross_entropy_with_logits
-        # sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
+        sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
+
         loss_cls = tf.reduce_mean(xentropy(logits=logits_cls_lab, labels=lbl))
-        loss_dis_unl = tf.reduce_mean(sigmoid(logits=logits_dis_unl, labels=tf.ones([FLAGS.batch_size,1])))
-        loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size,1])))
+
+        loss_dis_unl = tf.reduce_mean(sigmoid(logits=logits_dis_unl, labels=tf.ones([FLAGS.batch_size, 1])))
+        loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size, 1])))
+
         loss_dis = loss_dis_unl + loss_dis_gen
-        print1 = tf.Print(unl, [logits_dis_unl])
-        print2 = tf.Print(inp, [logits_cls_lab])
-        print3 = tf.Print(unl, [logits_dis_gen])
-        print4 = tf.Print(unl, [logits_cls_gen])
 
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
-        loss_cat_gen = tf.reduce_mean(xentropy(logits=logits_cls_gen, labels=lbl_fake))
-        loss_gen = loss_features_matching + FLAGS.cat_gen_weight * loss_cat_gen
-
-        loss_gen = tf.clip_by_value(loss_gen, 1e8, 1e-6)
-        loss_cls = tf.clip_by_value(loss_cls, 1e8, 1e-6)
-        loss_dis = tf.clip_by_value(loss_dis, 1e8, 1e-6)
+        loss_gen_cat = tf.reduce_mean(xentropy(logits=logits_cls_gen, labels=lbl_fake))
+        loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
+        loss_gen = FLAGS.f_match_weight * loss_features_matching \
+                   + FLAGS.gen_cat_weight * loss_gen_cat \
+                   + FLAGS.gen_bin_weight * loss_gen_bin
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
@@ -128,7 +133,6 @@ def main(_):
         # control op dependencies for batch norm and trainable variables
         tvars = tf.trainable_variables()
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
-        cvars = [var for var in tvars if 'classifier_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
         testvars = [var for var in tvars if 'model_test' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -140,7 +144,7 @@ def main(_):
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
         train_cls_op = optimizer_cls.minimize(loss_cls, var_list=dvars)
-        ema = tf.train.ExponentialMovingAverage(decay=0.9999) # moving average for testing
+        ema = tf.train.ExponentialMovingAverage(decay=0.9999)  # moving average for testing
         maintain_averages_op = ema.apply(dvars)
         with tf.control_dependencies([train_cls_op]):
             train_cls_op_ema = tf.group(maintain_averages_op)
@@ -161,9 +165,11 @@ def main(_):
             tf.summary.scalar('loss_cls', loss_cls, ['cls'])
             tf.summary.scalar('classifier_accuracy', accuracy_cls, ['cls'])
 
-
         with tf.name_scope('gen_summary'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
+            tf.summary.scalar('loss_gen_cat', loss_gen_cat, ['gen'])
+            tf.summary.scalar('loss_gen_bin', loss_gen_bin, ['gen'])
+            tf.summary.scalar('loss_feature_matching', loss_features_matching, ['gen'])
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('epoch_summary'):
@@ -171,26 +177,26 @@ def main(_):
             tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
         with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
-            tf.summary.image('input_image', tf.reshape(unl, [-1,28,28,1]),10,['image'])
+            tf.summary.image('gen_digits_rnd_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['rnd_image'])
+            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 50, ['det_image'])
 
         sum_op_cls = tf.summary.merge_all('cls')
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
-        sum_op_im = tf.summary.merge_all('image')
+        sum_op_im_rnd = tf.summary.merge_all('rnd_image')
+        sum_op_im_det = tf.summary.merge_all('det_image')
         sum_op_epoch = tf.summary.merge_all('epoch')
 
     check_op = tf.add_check_numerics_ops()
     '''//////perform training //////'''
-    print('start training\n')
+    print('start training')
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
         sess.run(init, feed_dict={inp: trainx_unl[0:FLAGS.batch_size], is_training_pl: True})
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         batch = 0
-        print('initialization done')
-
+        print('data driven initialization done\n')
         for epoch in range(200):
             begin = time.time()
 
@@ -209,6 +215,7 @@ def main(_):
             train_loss_cls, train_loss_dis, train_loss_gen, train_acc, test_acc = [0, 0, 0, 0, 0]
             # training
             for t in range(nr_batches_train):
+                display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
                 # train discriminator
@@ -232,16 +239,11 @@ def main(_):
                 train_loss_gen += lg
                 writer.add_summary(sm, batch)
                 # print
-                if batch % FLAGS.freq_print == 0:
-                    ran_from = np.random.randint(0,trainx_unl.shape[0]-FLAGS.batch_size)
+                if batch % FLAGS.freq_print == 0 & FLAGS.enable_print:
+                    ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
                     ran_to = ran_from + FLAGS.batch_size
-                    sm = sess.run(sum_op_im, feed_dict={unl:trainx_unl[ran_from:ran_to], is_training_pl: False})
+                    sm = sess.run(sum_op_im_rnd, feed_dict={unl: trainx_unl[ran_from:ran_to], is_training_pl: False})
                     writer.add_summary(sm, batch)
-                    feed_dict={inp: trainx[ran_from:ran_to],
-                                lbl: trainy[ran_from:ran_to],
-                               unl: trainx_unl[ran_from:ran_to],
-                                is_training_pl: True}
-                    sess.run([print1,print2, print3, print4],feed_dict=feed_dict)
                 batch += 1
 
             train_loss_gen /= nr_batches_train
@@ -249,7 +251,7 @@ def main(_):
             train_loss_dis /= nr_batches_train
             train_acc /= nr_batches_train
 
-            # Testing
+            # Testing classifier
             sess.run(copy_graph)
             for t in range(nr_batches_test):
                 ran_from = t * FLAGS.batch_size
@@ -260,8 +262,12 @@ def main(_):
                 test_acc += sess.run(accuracy_cls_test, feed_dict=feed_dict)
             test_acc /= nr_batches_test
 
-            print("Epoch %d--Time = %ds | loss gen = %.4f | loss cls = %.4f | loss dis = %.4f "
-                  "| train acc = %.4f| test acc = %.4f"
+            # Testing generator
+            sm = sess.run(sum_op_im_det, feed_dict={is_training_pl:False})
+            writer.add_summary(sm, epoch)
+
+            print("| Epoch %d--Time = %ds | loss gen = %.4f | loss cls = %.4f | loss dis = %.4f "
+                  "| train acc = %.4f| test acc = %.4f |"
                   % (epoch, time.time() - begin, train_loss_gen, train_loss_cls, train_loss_dis, train_acc, test_acc))
 
 

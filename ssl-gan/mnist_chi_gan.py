@@ -38,7 +38,6 @@ def l2normalize(x):
 def discriminator(inp, is_training, init=False):
     counter = {}
     x = inp
-
     x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
     x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter)
 
@@ -69,7 +68,12 @@ def discriminator(inp, is_training, init=False):
 def generator(batch_size,is_training):
 
     z_seed = tf.random_uniform([batch_size, 100],name='z_seed')
-    label_seed = tf.ceil(tf.random_uniform([batch_size,1], name='label_seed')*10) #random labels in [0,10]
+
+    # to test categorical generation during testing mode
+    deterministic_labels = tf.cast(tf.expand_dims(tf.tile(tf.range(0,10),[10]),1), dtype=tf.float32)
+    random_labels = tf.floor(tf.random_uniform([batch_size,1], name='label_seed')*10) #random integer labels in [0,10]
+    label_seed = tf.where(is_training, random_labels, deterministic_labels)
+
     seed = tf.concat([z_seed, label_seed],axis=1)
     with tf.variable_scope('dense1'):
         x = tf.layers.dense(seed, 500, name='fc1', activation=None)
