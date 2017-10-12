@@ -22,9 +22,9 @@ flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
 flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
 # weights loss
-flags.DEFINE_float('gen_cat_weight', 0.1, 'categorical generator weight [1.]')
-flags.DEFINE_float('gen_bin_weight', 1., 'categorical generator weight [1.]')
-flags.DEFINE_float('f_match_weight', .5, 'categorical generator weight [0.]')
+flags.DEFINE_float('gen_cat_weight', 0., 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_bin_weight', 0.1, 'categorical generator weight [1.]')
+flags.DEFINE_float('f_match_weight', 1, 'categorical generator weight [0.]')
 
 FLAGS._parse_flags()
 print("\nParameters:")
