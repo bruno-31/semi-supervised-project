@@ -1,4 +1,5 @@
 import tensorflow as tf
+import nn
 
 init_kernel = tf.random_normal_initializer(mean=0, stddev=0.05)
 
@@ -20,92 +21,55 @@ def _leakyReLu_impl(x, alpha):
     return tf.nn.relu(x) - (alpha * tf.nn.relu(-x))
 
 
-def discriminator(inp, is_training):
-    activation = leakyReLu
-    x = inp
-    x = gaussian_noise_layer(x, std=0.15)
+def discriminator(inp, is_training, init=False):
+    counter = {}
+    x = tf.reshape(inp, [-1,32,32,3])
+    x = tf.layers.dropout(x,rate=0.2, training=is_training, name='dropout_0')
 
-    with tf.variable_scope('conv_1'):
-        x = tf.layers.conv2d(x, 96, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-    with tf.variable_scope('conv_2'):
-        x = tf.layers.conv2d(x, 96, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-    with tf.variable_scope('conv_3'):
-        x = tf.layers.conv2d(x, 96, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
+    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 96, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)
+    # 16*16
+    x = tf.layers.dropout(x,rate=0.5, training=is_training, name='dropout_1')
 
-    x = tf.layers.max_pooling2d(x, 2, 2, padding='SAME')
-    x = tf.layers.dropout(x, 0.5, training=is_training)
+    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)
+    # 8*8
+    x = tf.layers.dropout(x,rate=0.5, training=is_training, name='dropout_2')
 
-    with tf.variable_scope('conv_4'):
-        x = tf.layers.conv2d(x, 192, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-    with tf.variable_scope('conv_5'):
-        x = tf.layers.conv2d(x, 192, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-    with tf.variable_scope('conv_6'):
-        x = tf.layers.conv2d(x, 192, 3, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
+    x = nn.conv2d(x, 192, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 5*5
+    x = nn.nin(x, 192, nonlinearity=leakyReLu,init=init,counters=counter)
+    x = nn.nin(x, 192, nonlinearity=leakyReLu,init=init,counters=counter)
 
-    x = tf.layers.max_pooling2d(x, 2, 2, padding='SAME')
-    x = tf.layers.dropout(x, 0.5, training=is_training)
+    print(x)
+    intermediate_layer = x
 
-    with tf.variable_scope('conv_7'):
-        x = tf.layers.conv2d(x, 192, 3, padding='VALID')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-    with tf.variable_scope('conv_8'):
-        x = tf.layers.conv2d(x, 192, 1, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
+    x = tf.layers.average_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')
+    x = tf.squeeze(x, [1, 2])
 
-        intermediate_layer = x
-
-    with tf.variable_scope('conv_9'):
-        x = tf.layers.conv2d(x, 192, 1, padding='SAME')
-        x = tf.layers.batch_normalization(x, training=is_training)
-        x = activation(x)
-
-    x = tf.layers.average_pooling2d(x, pool_size=6, strides=1)
-    x = tf.squeeze(x)
-
-    with tf.variable_scope('fc'):
-        logits = tf.layers.dense(x, units=10, activation=None)
-
-
+    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
 
     return logits, intermediate_layer
 
 
-def generator(batch_size, is_training):
+def generator(batch_size, is_training, init):
+    counter = {}
+    z_seed = tf.random_uniform([batch_size, 100])
 
-    z_seed = tf.random_uniform([batch_size,100])
-
-    with tf.variable_scope('dense'):
-        x = tf.layers.dense(z_seed, 4 * 4 * 512, name='fc1', activation=tf.nn.relu, kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x,training=is_training)
+    x = nn.dense(z_seed, 4 * 4 * 512, init=init, counters=counter)
+    x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_1')
+    x = tf.nn.relu(x)
 
     x = tf.reshape(x, [-1, 4, 4, 512])
 
-    with tf.variable_scope('deconv_1'):
-        x = tf.layers.conv2d_transpose(x, 256, 5, 2, padding='SAME', name='deconv1', activation=tf.nn.relu,
-                                       kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, training=is_training)
+    x = nn.deconv2d(x, 256,filter_size=[5,5], stride=[2,2],init=init, counters=counter)
+    x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_2')
+    x = tf.nn.relu(x)
 
-    with tf.variable_scope('deconv_2'):
-        x = tf.layers.conv2d_transpose(x, 128, 5, 2, padding='SAME', name='deconv2', activation=tf.nn.relu,
-                                       kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, training=is_training)
+    x = nn.deconv2d(x, 128,filter_size=[5,5], stride=[2,2], init=init, counters=counter)
+    x = tf.layers.batch_normalization(x, training=is_training, name='batchnormn_3')
+    x = tf.nn.relu(x)
 
-    with tf.variable_scope('deconv_3'):
-        x = tf.layers.conv2d_transpose(x, 3, 5, 2, padding='SAME', name='output_generator', activation=tf.nn.tanh,
-                                       kernel_initializer=init_kernel)
-
-    return x
+    output = nn.deconv2d(x, 3,filter_size=[5,5], stride=[2,2], nonlinearity=tf.nn.tanh, init=init, counters=counter)
+    return output

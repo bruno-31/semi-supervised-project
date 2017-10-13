@@ -52,15 +52,16 @@ def discriminator(inp, is_training, init=False):
 
     inter_layer = x
 
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
-
     with tf.variable_scope('discriminator'):
         x1 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x1 = nn.dense(x1, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+        x1 = gaussian_noise_layer(x1, std=0.5, deterministic=~is_training)
         dis_logits = nn.dense(x1, 1, nonlinearity=None, init=init, counters=counter)
 
     with tf.variable_scope('classifier'):
         x2 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x2 = nn.dense(x2, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+        x2 = gaussian_noise_layer(x2, std=0.5, deterministic=~is_training)
         cls_logits = nn.dense(x2, 10, nonlinearity=None, init=init, counters=counter)
 
     return dis_logits, cls_logits, inter_layer

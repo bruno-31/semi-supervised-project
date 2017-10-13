@@ -3,7 +3,6 @@ import time
 import numpy as np
 import tensorflow as tf
 import mnist_gan
-from conv_model_improved import *
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
