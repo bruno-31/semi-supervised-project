@@ -20,12 +20,11 @@ def discriminator(inp, is_training, init=False):
     counter = {}
     x = tf.reshape(inp, [-1,32,32,3])
     x = tf.layers.dropout(x,rate=0.2, training=is_training, name='dropout_0')
-
-    # x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 96, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter) #=> 16*16
     x = tf.layers.dropout(x,rate=0.5, training=is_training, name='dropout_1')
 
-    # x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter) # => 8*8
     # 8*8
     x = tf.layers.dropout(x,rate=0.5, training=is_training, name='dropout_2')
@@ -54,8 +53,9 @@ def generator(batch_size, is_training, init):
     with tf.variable_scope('dense_1'):
         x = tf.layers.dense(x, units=4*4*512, kernel_initializer=tf.random_normal_initializer(stddev=0.05))
     # x = nn.dense(z_seed, 4 * 4 * 512, init=init, counters=counter)
-        x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_1')
         x = tf.nn.relu(x)
+
+        x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_1')
 
     x = tf.reshape(x, [-1, 4, 4, 512])
 
@@ -68,13 +68,15 @@ def generator(batch_size, is_training, init):
     # x = tf.nn.relu(x)
     with tf.variable_scope('deconv_1'):
         x = tf.layers.conv2d_transpose(x, 256, [5, 5], strides=[2,2], padding='SAME', kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_2')
         x = tf.nn.relu(x)
+
+        x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_2')
 
     with tf.variable_scope('deconv_2'):
         x = tf.layers.conv2d_transpose(x, 128, [5,5], strides=[2,2], padding='SAME', kernel_initializer=init_kernel)
-        x = tf.layers.batch_normalization(x, training=is_training, name='batchnormn_3')
         x = tf.nn.relu(x)
+
+        x = tf.layers.batch_normalization(x, training=is_training, name='batchnormn_3')
 
     # including weightnorm
     with tf.variable_scope('deconv_3'):

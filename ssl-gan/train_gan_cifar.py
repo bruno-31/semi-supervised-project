@@ -14,7 +14,7 @@ flags.DEFINE_string('logdir', './log', 'log directory')
 flags.DEFINE_integer('seed', 0, 'seed ')
 flags.DEFINE_integer('seed_data', 0, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
-flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
+flags.DEFINE_float('learning_rate', 0.0001, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 0.0, 'unlabeled weight [1.]')
@@ -122,8 +122,8 @@ def main(_):
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
         update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
 
-        optimizer_dis = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='dis_optimizer')
-        optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='gen_optimizer')
+        optimizer_dis = tf.train.AdamOptimizer(learning_rate=0.0001, beta1=0.9, name='dis_optimizer')
+        optimizer_gen = tf.train.AdamOptimizer(learning_rate=0.001, beta1=0.9, name='gen_optimizer')
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
@@ -224,7 +224,7 @@ def main(_):
             train_loss_gen /= nr_batches_train
 
 
-            print("Epoch %d--time = %ds--lr = %.1f | loss gen = %.4f | loss dis = %.4f |"
+            print("Epoch %d--time = %ds--lr = %.5f | loss gen = %.4f | loss dis = %.4f |"
                   % (epoch, time.time() - begin,lr, train_loss_gen, train_loss_dis))
 
 

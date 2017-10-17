@@ -141,7 +141,7 @@ def get_name(layer_name, counters):
     return name
 
 @add_arg_scope
-def dense(x, num_units, nonlinearity=None, init_scale=1., counters={}, init=False, ema=None, **kwargs):
+def dense(x, num_units, nonlinearity=None, init_scale=1., counters={},init=False, ema=None, **kwargs):
     ''' fully connected layer '''
     name = get_name('dense', counters)
     with tf.variable_scope(name):
