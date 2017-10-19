@@ -76,12 +76,12 @@ def main(_):
 
     with tf.variable_scope('generator_model') as scope:
         gen_init = gen(FLAGS.batch_size, is_training=is_training_pl, init=True)
-        [print(v.name) for v in tf.trainable_variables()]
-        print("")
+        # [print(v.name) for v in tf.trainable_variables()]
+        # print("")
         scope.reuse_variables()
         gen_inp = gen(FLAGS.batch_size, is_training_pl, init=False)
-        [print(v.name) for v in tf.trainable_variables()]
-        print("")
+        # [print(v.name) for v in tf.trainable_variables()]
+        # print("")
     with tf.variable_scope('discriminator_model') as scope:
         dis(inp, is_training_pl, init=True)
         scope.reuse_variables()
@@ -153,8 +153,8 @@ def main(_):
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits', gen_inp, 20, ['image'])
-            tf.summary.image('input_images', inp, 10, ['image'])
+            tf.summary.image('gen_digits', gen_inp, 40, ['image'])
+            tf.summary.image('input_images', inp, 1, ['image'])
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -172,6 +172,9 @@ def main(_):
         print('initialization done')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
+
+        tvars = tf.trainable_variables()
+        [print(v.name) for v in tvars]
 
         for epoch in range(200):
             begin = time.time()
