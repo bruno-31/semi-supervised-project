@@ -72,6 +72,7 @@ def _get_dataset(path,split):
     # Convert images to [0..1] range
     imgs = imgs.astype(np.float32) / 255.0
     # Convert images to [-1..1] range
+    imgs = imgs * 2. -1.
     # imgs = (imgs.astype(np.float32)-127.5) / 128.
     # Convert label to one hot encoding
     # lbl = np.zeros((len(lbls),10))
