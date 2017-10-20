@@ -42,18 +42,25 @@ def main(_):
 
     # load CIFAR-10
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
+    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
+    nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
+
 
     '''construct graph'''
     print('constructing graph')
     unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='unlabeled_data_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
+    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
+    lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
+
 
 
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
+
     random_z = tf.random_normal([FLAGS.batch_size, 100], mean=0.0, stddev=1.0, name='random_z')
     with tf.variable_scope('generator_model') as scope:
         gen(random_z, is_training_pl, init=True)
@@ -63,21 +70,44 @@ def main(_):
     with tf.variable_scope('discriminator_model') as scope:
         dis(unl, is_training_pl, init=True)
         scope.reuse_variables()
-        logits_gen,_ = dis(gen_inp, is_training_pl, init=False)
-        logits_unl, _ = dis(unl, is_training_pl, init=False)
+        logits_lab, _ = dis(inp, is_training_pl, init=False)
+        logits_gen, layer_fake = dis(gen_inp, is_training_pl, init=False)
+        logits_unl, layer_real = dis(unl, is_training_pl, init=False)
+
+    # with tf.name_scope('loss_functions'):
+    #     with tf.name_scope('generator_loss'):
+    #         loss_gen = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_gen),logits=logits_gen)
+    #     with tf.name_scope('discriminator_loss'):
+    #         d_loss_real = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_unl), logits_unl)
+    #         d_loss_fake = tf.losses.sigmoid_cross_entropy(tf.zeros_like(logits_gen), logits_gen)
+    #         loss_dis = d_loss_fake + d_loss_real
+    #
+    #     fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gen,0),tf.float32))
+    #     accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_unl,0),tf.float32))
+    #     accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gen,0),tf.float32))
+    #     accuracy_dis= 0.5 * accuracy_dis_gen + 0.5 *accuracy_dis_unl
 
     with tf.name_scope('loss_functions'):
-        with tf.name_scope('generator_loss'):
-            loss_gen = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_gen),logits=logits_gen)
-        with tf.name_scope('discriminator_loss'):
-            d_loss_real = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_unl), logits_unl)
-            d_loss_fake = tf.losses.sigmoid_cross_entropy(tf.zeros_like(logits_gen), logits_gen)
-            loss_dis = d_loss_fake + d_loss_real
+        # Taken from improved gan, T. Salimans
+        l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
+        l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
+        # DISCRIMINATOR
+        loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
+        loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
+                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
+                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
+        loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
+        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
+        correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
+        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-        fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gen,0),tf.float32))
-        accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_unl,0),tf.float32))
-        accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gen,0),tf.float32))
-        accuracy_dis= 0.5 * accuracy_dis_gen + 0.5 *accuracy_dis_unl
+        # GENERATOR
+        m1 = tf.reduce_mean(layer_real, axis=0)
+        m2 = tf.reduce_mean(layer_fake, axis=0)
+        loss_gen = tf.reduce_mean(tf.square(m1 - m2))
+        # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
+        #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
+        fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -96,7 +126,6 @@ def main(_):
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
-
         with tf.control_dependencies(update_ops_dis):
             train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
 
@@ -104,8 +133,8 @@ def main(_):
         with tf.name_scope('dis_summary'):
             tf.summary.scalar('loss_unlabeled', loss_dis, ['dis'])
             tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
-            tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
-            tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
+            # tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
+            # tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
 
         with tf.name_scope('gen_summary'):

@@ -39,7 +39,7 @@ def discriminator(inp, is_training, init=False):
 
     intermediate_layer = x
 
-    logits = nn.dense(x, 1, nonlinearity=None, init=init, counters=counter)
+    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
 
     return logits, intermediate_layer
 
@@ -63,14 +63,12 @@ def generator(z_seed, is_training, init):
         x = tf.layers.conv2d_transpose(x, 128, [5, 5], strides=[2, 2], padding='SAME', kernel_initializer=init_kernel)
         x = tf.nn.relu(x)
         x = tf.layers.batch_normalization(x, training=is_training, name='batchnormn_3')
-    print(x)
     # including weightnorm     # [batch,32,32,3]
     with tf.variable_scope('deconv_3'):
         output = nn.deconv2d(x, num_filters=3, filter_size=[5, 5], stride=[2, 2], nonlinearity=tf.tanh, init=init,
                              counters=counter)
     # with tf.variable_scope('deconv_3'):
     #     output = tf.layers.conv2d_transpose(x, 3, [5, 5], strides=[2, 2], padding='SAME', activation=tf.tanh, kernel_initializer=init_kernel)
-    print(output)
     return output
 
 
