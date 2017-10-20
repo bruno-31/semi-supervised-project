@@ -15,24 +15,31 @@ def leakyReLu(x, alpha=0.2, name=None):
 def _leakyReLu_impl(x, alpha):
     return tf.nn.relu(x) - (alpha * tf.nn.relu(-x))
 
+def gaussian_noise_layer(input_layer, std):
+    noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
+    return input_layer + noise
+
 
 def discriminator(inp, is_training, init=False):
     counter = {}
     x = tf.reshape(inp, [-1, 32, 32, 3])
+
     x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_0')
 
     x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 32, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 16*16
-    x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_1')
+    x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_1')
 
     x = nn.conv2d(x, 64, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 64, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
-    x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_2')
+    x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
-    x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    x = nn.conv2d(x, 128, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    # x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)
 
     x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
     x = tf.squeeze(x, [1, 2])

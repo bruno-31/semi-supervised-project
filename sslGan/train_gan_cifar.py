@@ -14,7 +14,7 @@ flags.DEFINE_string('logdir', './log', 'log directory')
 flags.DEFINE_integer('seed', 0, 'seed ')
 flags.DEFINE_integer('seed_data', 0, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
-flags.DEFINE_float('learning_rate', 0.0001, 'learning_rate[0.003]')
+flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
@@ -49,7 +49,6 @@ def main(_):
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
     # select labeled data
-    # select labeled data
     inds = rng_data.permutation(trainx.shape[0])
     trainx = trainx[inds]
     trainy = trainy[inds]
@@ -69,6 +68,7 @@ def main(_):
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
+    lr_pl = tf.placeholder(tf.float32,[],name='learning_rate_pl')
 
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
@@ -86,6 +86,11 @@ def main(_):
         logits_gen, layer_fake = dis(gen_inp, is_training_pl, init=False)
         logits_unl, layer_real = dis(unl, is_training_pl, init=False)
 
+    with tf.variable_scope("model_test") as test_scope:
+        _, _ = dis(inp, is_training_pl, True)
+        test_scope.reuse_variables()
+        logits_test, _ = dis(inp, is_training_pl, False)
+
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
@@ -99,6 +104,8 @@ def main(_):
         accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        correct_pred_test = tf.equal(tf.cast(tf.argmax(logits_test, 1), tf.int32), tf.cast(lbl, tf.int32))
+        accuracy_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
         # GENERATOR
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
@@ -113,19 +120,28 @@ def main(_):
 
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
+        testvars = [var for var in tvars if 'model_test' in var.name]
 
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
         update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
 
-        optimizer_dis = tf.train.AdamOptimizer(learning_rate=0.0002, beta1=0.5, name='dis_optimizer')
-        optimizer_gen = tf.train.AdamOptimizer(learning_rate=0.0002, beta1=0.5, name='gen_optimizer')
+        optimizer_dis = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='dis_optimizer')
+        optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='gen_optimizer')
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
+
+        dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
+
+        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        maintain_averages_op = ema.apply(dvars)
+
         with tf.control_dependencies(update_ops_dis):
-            train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
+            with tf.control_dependencies([dis_op]):
+                train_dis_op = tf.group(maintain_averages_op)
+        copy_graph = [tf.assign(x, ema.average(y)) for x, y in zip(testvars, dvars)]
 
     with tf.name_scope('summary'):
         with tf.name_scope('dis_summary'):
@@ -155,7 +171,7 @@ def main(_):
         sess.run(init_gen)
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict={unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
+        sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
         print('initialization done')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
@@ -163,9 +179,11 @@ def main(_):
         tvars = tf.trainable_variables()
         [print(v.name) for v in tvars]
 
-        for epoch in range(200):
+        for epoch in range(1200):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc = [0, 0, 0, 0, 0]
+
+            lr = FLAGS.learning_rate * min(3-epoch/400,1)
 
             # construct randomly permuted minibatches
             trainx = []
@@ -189,7 +207,8 @@ def main(_):
                 feed_dict = {unl: trainx_unl[ran_from:ran_to],
                              is_training_pl: True,
                              inp: trainx[ran_from:ran_to],
-                             lbl: trainy[ran_from:ran_to]}
+                             lbl: trainy[ran_from:ran_to],
+                             lr_pl: lr}
                 _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, sum_op_dis],
                                      feed_dict=feed_dict)
                 train_loss_unl += lu
@@ -199,7 +218,8 @@ def main(_):
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
-                                                                                      is_training_pl: True})
+                                                                                      is_training_pl: True,
+                                                                                      lr_pl:lr})
                 train_loss_gen += lg
                 train_batch += 1
                 writer.add_summary(sm, train_batch)
@@ -216,6 +236,7 @@ def main(_):
             train_acc /= nr_batches_train
 
             # Testing
+            sess.run(copy_graph)
             for t in range(nr_batches_test):
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
