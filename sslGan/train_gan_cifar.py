@@ -17,7 +17,7 @@ flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0001, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
-flags.DEFINE_float('lbl_weight', 0.0, 'unlabeled weight [1.]')
+flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
 print("\nParameters:")
@@ -48,6 +48,20 @@ def main(_):
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
+    # select labeled data
+    # select labeled data
+    inds = rng_data.permutation(trainx.shape[0])
+    trainx = trainx[inds]
+    trainy = trainy[inds]
+    txs = []
+    tys = []
+    for j in range(10):
+        txs.append(trainx[trainy == j][:FLAGS.labeled])
+        tys.append(trainy[trainy == j][:FLAGS.labeled])
+    txs = np.concatenate(txs, axis=0)
+    tys = np.concatenate(tys, axis=0)
+
+    print('labeled images : ', len(tys))
 
     '''construct graph'''
     print('constructing graph')
@@ -55,8 +69,6 @@ def main(_):
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
-
-
 
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
@@ -74,19 +86,6 @@ def main(_):
         logits_gen, layer_fake = dis(gen_inp, is_training_pl, init=False)
         logits_unl, layer_real = dis(unl, is_training_pl, init=False)
 
-    # with tf.name_scope('loss_functions'):
-    #     with tf.name_scope('generator_loss'):
-    #         loss_gen = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_gen),logits=logits_gen)
-    #     with tf.name_scope('discriminator_loss'):
-    #         d_loss_real = tf.losses.sigmoid_cross_entropy(tf.ones_like(logits_unl), logits_unl)
-    #         d_loss_fake = tf.losses.sigmoid_cross_entropy(tf.zeros_like(logits_gen), logits_gen)
-    #         loss_dis = d_loss_fake + d_loss_real
-    #
-    #     fool_rate = tf.reduce_mean(tf.cast(tf.greater(logits_gen,0),tf.float32))
-    #     accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_unl,0),tf.float32))
-    #     accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_gen,0),tf.float32))
-    #     accuracy_dis= 0.5 * accuracy_dis_gen + 0.5 *accuracy_dis_unl
-
     with tf.name_scope('loss_functions'):
         # Taken from improved gan, T. Salimans
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
@@ -100,7 +99,6 @@ def main(_):
         accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-
         # GENERATOR
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
@@ -141,7 +139,6 @@ def main(_):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
-
         with tf.name_scope('image_summary'):
             tf.summary.image('gen_digits', gen_inp, 20, ['image'])
             tf.summary.image('input_images', unl, 1, ['image'])
@@ -158,7 +155,7 @@ def main(_):
         sess.run(init_gen)
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict={unl:trainx_unl[:FLAGS.batch_size], is_training_pl:True})
+        sess.run(init, feed_dict={unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
         print('initialization done')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
@@ -168,9 +165,17 @@ def main(_):
 
         for epoch in range(200):
             begin = time.time()
-            train_loss_dis, train_loss_unl, train_loss_gen, train_acc, test_acc = [0, 0, 0, 0, 0]
+            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc = [0, 0, 0, 0, 0]
 
             # construct randomly permuted minibatches
+            trainx = []
+            trainy = []
+            for t in range(int(np.ceil(trainx_unl.shape[0] / float(txs.shape[0])))):  # same size lbl and unlb
+                inds = rng.permutation(txs.shape[0])
+                trainx.append(txs[inds])
+                trainy.append(tys[inds])
+            trainx = np.concatenate(trainx, axis=0)
+            trainy = np.concatenate(trainy, axis=0)
             trainx_unl = trainx_unl[rng.permutation(trainx_unl.shape[0])]  # shuffling unl dataset
             trainx_unl2 = trainx_unl2[rng.permutation(trainx_unl2.shape[0])]
 
@@ -181,10 +186,15 @@ def main(_):
                 ran_to = (t + 1) * FLAGS.batch_size
 
                 # train discriminator
-                feed_dict = {unl: trainx_unl[ran_from:ran_to], is_training_pl: True}
-                _, ld, sm = sess.run([train_dis_op, loss_dis, sum_op_dis],
-                                              feed_dict=feed_dict)
-                train_loss_dis += ld
+                feed_dict = {unl: trainx_unl[ran_from:ran_to],
+                             is_training_pl: True,
+                             inp: trainx[ran_from:ran_to],
+                             lbl: trainy[ran_from:ran_to]}
+                _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, sum_op_dis],
+                                     feed_dict=feed_dict)
+                train_loss_unl += lu
+                train_loss_lab += lb
+                train_acc += acc
                 writer.add_summary(sm, train_batch)
 
                 # train generator
@@ -197,15 +207,29 @@ def main(_):
                 if t % FLAGS.freq_print == 0:
                     x = np.random.randint(0, 4000)
                     sm = sess.run(sum_op_im,
-                                  feed_dict={is_training_pl: True,unl: trainx_unl[x:x + FLAGS.batch_size]})
+                                  feed_dict={is_training_pl: True, unl: trainx_unl[x:x + FLAGS.batch_size]})
                     writer.add_summary(sm, train_batch)
 
-            train_loss_dis /= nr_batches_train
+            train_loss_lab /= nr_batches_train
+            train_loss_unl /= nr_batches_train
             train_loss_gen /= nr_batches_train
+            train_acc /= nr_batches_train
+
+            # Testing
+            for t in range(nr_batches_test):
+                ran_from = t * FLAGS.batch_size
+                ran_to = (t + 1) * FLAGS.batch_size
+                feed_dict = {inp: testx[ran_from:ran_to],
+                             lbl: testy[ran_from:ran_to],
+                             is_training_pl: False}
+                test_acc += sess.run(accuracy, feed_dict=feed_dict)
+
+            test_acc /= nr_batches_test
 
 
-            print("Epoch %d--time = %ds | loss gen = %.4f | loss dis = %.4f |"
-                  % (epoch, time.time() - begin, train_loss_gen, train_loss_dis))
+            print("Epoch %d--Time = %ds | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+                  "| train acc = %.4f| test acc = %.4f"
+                  % (epoch, time.time() - begin, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
 
 
 if __name__ == '__main__':
