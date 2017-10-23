@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 import cifar10_input
 import cifar_gan
+from tensorflow.contrib.keras.python.keras.preprocessing.image import ImageDataGenerator
+
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
@@ -60,6 +62,16 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print('labeled images : ', len(tys))
+
+    train_datagen = ImageDataGenerator(
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True)
+
+    with tf.device('/cpu:0'):
+        inp_flow = train_datagen.flow(x=txs, y=tys, batch_size=FLAGS.batch_size)
+        unl_flow = train_datagen.flow(trainx_unl, batch_size=FLAGS.batch_size)
+        unl2_flow = train_datagen.flow(trainx_unl2, batch_size=FLAGS.batch_size)
 
     '''construct graph'''
     print('constructing graph')
@@ -165,7 +177,7 @@ def main(_):
 
         with tf.name_scope('image_summary'):
             tf.summary.image('gen_digits', gen_inp, 20, ['image'])
-            tf.summary.image('input_images', unl, 1, ['image'])
+            tf.summary.image('input_images', unl, 20, ['image'])
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -193,29 +205,16 @@ def main(_):
 
             lr = FLAGS.learning_rate * min(3-epoch/400,1)
 
-            # construct randomly permuted minibatches
-            trainx = []
-            trainy = []
-            for t in range(int(np.ceil(trainx_unl.shape[0] / float(txs.shape[0])))):  # same size lbl and unlb
-                inds = rng.permutation(txs.shape[0])
-                trainx.append(txs[inds])
-                trainy.append(tys[inds])
-            trainx = np.concatenate(trainx, axis=0)
-            trainy = np.concatenate(trainy, axis=0)
-            trainx_unl = trainx_unl[rng.permutation(trainx_unl.shape[0])]  # shuffling unl dataset
-            trainx_unl2 = trainx_unl2[rng.permutation(trainx_unl2.shape[0])]
-
             # training
             for t in range(nr_batches_train):
                 display_progression_epoch(t, nr_batches_train)
-                ran_from = t * FLAGS.batch_size
-                ran_to = (t + 1) * FLAGS.batch_size
 
+                x,y = inp_flow.next()
                 # train discriminator
-                feed_dict = {unl: trainx_unl[ran_from:ran_to],
+                feed_dict = {unl: unl_flow.next(),
                              is_training_pl: True,
-                             inp: trainx[ran_from:ran_to],
-                             lbl: trainy[ran_from:ran_to],
+                             inp: x,
+                             lbl: y,
                              lr_pl: lr}
                 _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, sum_op_dis],
                                      feed_dict=feed_dict)
@@ -225,7 +224,7 @@ def main(_):
                 writer.add_summary(sm, train_batch)
 
                 # train generator
-                _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
+                _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: unl2_flow.next(),
                                                                                       is_training_pl: True,
                                                                                       lr_pl:lr})
                 train_loss_gen += lg
@@ -233,9 +232,8 @@ def main(_):
                 writer.add_summary(sm, train_batch)
 
                 if t % FLAGS.freq_print == 0:
-                    x = np.random.randint(0, 4000)
                     sm = sess.run(sum_op_im,
-                                  feed_dict={is_training_pl: True, unl: trainx_unl[x:x + FLAGS.batch_size]})
+                                  feed_dict={is_training_pl: True, unl: unl_flow.next()})
                     writer.add_summary(sm, train_batch)
 
             train_loss_lab /= nr_batches_train
