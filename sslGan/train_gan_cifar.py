@@ -5,7 +5,6 @@ import numpy as np
 import tensorflow as tf
 import cifar10_input
 import cifar_gan
-import dcgan
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
@@ -73,7 +72,7 @@ def main(_):
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
 
-    random_z = tf.random_normal([FLAGS.batch_size, 100], mean=0.0, stddev=1.0, name='random_z')
+    random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
     with tf.variable_scope('generator_model') as scope:
         gen(random_z, is_training_pl, init=True)
         scope.reuse_variables()
@@ -142,12 +141,14 @@ def main(_):
 
         dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        ema = tf.train.ExponentialMovingAverage(decay=0.999)
         maintain_averages_op = ema.apply(dvars)
 
-        with tf.control_dependencies(update_ops_dis):
-            with tf.control_dependencies([dis_op]):
-                train_dis_op = tf.group(maintain_averages_op)
+        # with tf.control_dependencies(update_ops_dis):
+
+        with tf.control_dependencies([dis_op]):
+            train_dis_op = tf.group(maintain_averages_op)
+
         copy_graph = [tf.assign(x, ema.average(y)) for x, y in zip(testvars, dvars)]
 
     with tf.name_scope('summary'):
@@ -250,14 +251,14 @@ def main(_):
                 feed_dict = {inp: testx[ran_from:ran_to],
                              lbl: testy[ran_from:ran_to],
                              is_training_pl: False}
-                test_acc += sess.run(accuracy, feed_dict=feed_dict)
+                test_acc += sess.run(accuracy_test, feed_dict=feed_dict)
 
             test_acc /= nr_batches_test
 
 
-            print("Epoch %d--Time = %ds | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
-                  % (epoch, time.time() - begin, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
+                  % (epoch, time.time() -begin,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
 
 
 if __name__ == '__main__':
