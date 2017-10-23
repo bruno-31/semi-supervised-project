@@ -11,8 +11,8 @@ flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log', 'log directory')
-flags.DEFINE_integer('seed', 0, 'seed ')
-flags.DEFINE_integer('seed_data', 0, 'seed data')
+flags.DEFINE_integer('seed', 4, 'seed ')
+flags.DEFINE_integer('seed_data', 4, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
@@ -92,6 +92,13 @@ def main(_):
         logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
+
+        # z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
+        # rg = tf.cast(tf.range(0, FLAGS.batch_size), tf.int32)
+        # idx = tf.stack([rg, lbl], axis=1)
+        # l_lab = tf.gather_nd(logits_lab, idx)
+        # loss_lab = -tf.reduce_mean(l_lab) + z_exp_lab
+
         # Taken from improved gan, T. Salimans
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_gen, axis=1)

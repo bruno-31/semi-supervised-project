@@ -74,8 +74,6 @@ def generator(z_seed, is_training, init):
     with tf.variable_scope('deconv_3'):
         output = nn.deconv2d(x, num_filters=3, filter_size=[5, 5], stride=[2, 2], nonlinearity=tf.tanh, init=init,
                              counters=counter)
-    # with tf.variable_scope('deconv_3'):
-    #     output = tf.layers.conv2d_transpose(x, 3, [5, 5], strides=[2, 2], padding='SAME', activation=tf.tanh, kernel_initializer=init_kernel)
     return output
 
 
