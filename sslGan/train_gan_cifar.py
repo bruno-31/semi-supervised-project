@@ -1,6 +1,6 @@
 import os
 import time
-import sys
+from utils import *
 import numpy as np
 import tensorflow as tf
 import cifar10_input
@@ -11,12 +11,12 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
-flags.DEFINE_string('logdir', './log', 'log directory')
+flags.DEFINE_string('logdir', './log/000', 'log directory')
 flags.DEFINE_integer('seed', 4, 'seed ')
 flags.DEFINE_integer('seed_data', 4, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
-flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
+flags.DEFINE_integer('freq_print', 500, 'frequency image print tensorboard [500]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average testing, 0 to disable  [0.9999]')
@@ -28,16 +28,19 @@ for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
 
-
-def display_progression_epoch(j, id_max):
-    batch_progression = int((j / id_max) * 100)
-    sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
-    _ = sys.stdout.flush
-
-
 def main(_):
     if not os.path.exists(FLAGS.logdir):
         os.mkdir(FLAGS.logdir)
+
+    filename = FLAGS.logdir + '/param.txt'
+    if not os.path.isfile(filename):
+        os.mknod(filename)
+    file = open(filename, "a")
+    file.write("\nParameters:")
+    for attr, value in sorted(FLAGS.__flags.items()):
+        file.write("{}={}".format(attr.lower(), value))
+        file.write("\n")
+    file.close()
 
     # Random seed
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
@@ -176,6 +179,7 @@ def main(_):
         with tf.name_scope('epoch_summary'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
             tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
+            tf.summary.scalar('learning_rate', lr_pl,['epoch'])
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -192,7 +196,7 @@ def main(_):
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
         sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
-        print('initialization done')
+        print('initialization done\n')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
         max_test_acc = 0
@@ -270,14 +274,19 @@ def main(_):
             max_test_acc = max(test_acc, max_test_acc)
 
             sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
-                                                    acc_test_pl: test_acc})
+                                                    acc_test_pl: test_acc,
+                                                    lr_pl:lr})
             writer.add_summary(sum, epoch)
 
             print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
                   % (epoch, time.time() -begin,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
 
-        print("Training Done in s, max test acc = %0.3f"%(time.time()-glob_begin, max_test_acc))
+        print("Training Done in %ds, max test acc = %0.4f"%(time.time()-glob_begin, max_test_acc))
+
+        file = open(filename, "a")
+        file.write("\nmax accuray test_set : %0.4f\n" % (max_test_acc))
+        file.close()
 
 if __name__ == '__main__':
     tf.app.run()
