@@ -6,6 +6,8 @@ import tensorflow as tf
 import cifar10_input
 import cifar_gan
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
@@ -17,6 +19,8 @@ flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
+flags.DEFINE_float('ma_decay', 0.9999 , 'moving average testing, 0 to disable  [0.9999]')
+
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
 print("\nParameters:")
@@ -59,7 +63,7 @@ def main(_):
     txs = np.concatenate(txs, axis=0)
     tys = np.concatenate(tys, axis=0)
 
-    print('labeled images : ', len(tys))
+    # print('labeled images : ', len(tys))
 
     '''construct graph'''
     print('constructing graph')
@@ -68,6 +72,8 @@ def main(_):
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     lr_pl = tf.placeholder(tf.float32,[],name='learning_rate_pl')
+    acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
+    acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
@@ -92,17 +98,17 @@ def main(_):
 
     with tf.name_scope('loss_functions'):
 
-        # z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
-        # rg = tf.cast(tf.range(0, FLAGS.batch_size), tf.int32)
-        # idx = tf.stack([rg, lbl], axis=1)
-        # l_lab = tf.gather_nd(logits_lab, idx)
-        # loss_lab = -tf.reduce_mean(l_lab) + z_exp_lab
+        z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
+        rg = tf.cast(tf.range(0, FLAGS.batch_size), tf.int32)
+        idx = tf.stack([rg, lbl], axis=1)
+        l_lab = tf.gather_nd(logits_lab, idx)
+        loss_lab = -tf.reduce_mean(l_lab) + z_exp_lab
 
         # Taken from improved gan, T. Salimans
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
         # DISCRIMINATOR
-        loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
+        # loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
@@ -141,7 +147,7 @@ def main(_):
 
         dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.999)
+        ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = ema.apply(dvars)
 
         # with tf.control_dependencies(update_ops_dis):
@@ -167,9 +173,15 @@ def main(_):
             tf.summary.image('gen_digits', gen_inp, 20, ['image'])
             tf.summary.image('input_images', unl, 1, ['image'])
 
+        with tf.name_scope('epoch_summary'):
+            tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
+            tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
+
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
         sum_op_im = tf.summary.merge_all('image')
+        sum_op_epoch = tf.summary.merge_all('epoch')
+
 
     init_gen = [var.initializer for var in gvars][:-3]
 
@@ -183,10 +195,11 @@ def main(_):
         print('initialization done')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
+        max_test_acc = 0
 
-        tvars = tf.trainable_variables()
-        [print(v.name) for v in tvars]
-
+        # tvars = tf.trainable_variables()
+        # [print(v.name) for v in tvars]
+        glob_begin = time.time()
         for epoch in range(1200):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc = [0, 0, 0, 0, 0]
@@ -254,12 +267,17 @@ def main(_):
                 test_acc += sess.run(accuracy_test, feed_dict=feed_dict)
 
             test_acc /= nr_batches_test
+            max_test_acc = max(test_acc, max_test_acc)
 
+            sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
+                                                    acc_test_pl: test_acc})
+            writer.add_summary(sum, epoch)
 
             print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
                   % (epoch, time.time() -begin,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc))
 
+        print("Training Done in s, max test acc = %0.3f"%(time.time()-glob_begin, max_test_acc))
 
 if __name__ == '__main__':
     tf.app.run()

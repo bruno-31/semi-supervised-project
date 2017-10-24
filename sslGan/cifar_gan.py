@@ -37,16 +37,13 @@ def discriminator(inp, is_training, init=False):
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
     x = nn.conv2d(x, 128, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    # x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)
-
-    intermediate_layer = x
-
 
     x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
     x = tf.squeeze(x, [1, 2])
 
+    intermediate_layer = x
 
     logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
 
@@ -57,7 +54,7 @@ def generator(z_seed, is_training, init):
     counter = {}
     x = z_seed
     with tf.variable_scope('dense_1'):
-        x = tf.layers.dense(x, units=4 * 4 * 512, kernel_initializer=tf.random_normal_initializer(stddev=0.05))
+        x = tf.layers.dense(x, units=4 * 4 * 512, kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x, training=is_training, name='batchnorm_1')
         x = tf.nn.relu(x)
 

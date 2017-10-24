@@ -14,7 +14,7 @@ _shuffle = True
 
 
 def _unpickle_file(filename):
-    print("Loading pickle file: {}".format(filename))
+    # print("Loading pickle file: {}".format(filename))
 
     with open(filename, mode='rb') as file:
         data = pickle.load(file, encoding='bytes')

@@ -14,7 +14,7 @@ flags.DEFINE_integer('seed', 4, 'seed ')
 flags.DEFINE_integer('seed_data', 4, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
-flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
+flags.DEFINE_integer('freq_print', 100, 'frequency image print tensorboard [100]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 FLAGS = flags.FLAGS
@@ -184,8 +184,8 @@ def main(_):
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
 
-        tvars = tf.trainable_variables()
-        [print(v.name) for v in tvars]
+        # tvars = tf.trainable_variables()
+        # [print(v.name) for v in tvars]
 
         for epoch in range(1200):
             begin = time.time()

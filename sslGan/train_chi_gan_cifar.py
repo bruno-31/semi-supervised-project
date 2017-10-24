@@ -6,6 +6,8 @@ import tensorflow as tf
 import cifar10_input
 import cifar_chi_gan
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [128]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
@@ -14,11 +16,12 @@ flags.DEFINE_integer('seed', 4, 'seed ')
 flags.DEFINE_integer('seed_data', 4, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
-flags.DEFINE_integer('freq_print', 50, 'frequency image print tensorboard [20]')
+flags.DEFINE_integer('freq_print', 100, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('gen_weight_fmatch', 1.0, 'unlabeled weight [1.]')
-flags.DEFINE_float('gen_weight_bin', 0.1, 'unlabeled weight [1.]')
+flags.DEFINE_float('gen_weight_bin', 0.0 , 'unlabeled weight [1.]')
+flags.DEFINE_float('ma_decay', 0.9999 , 'moving average testing, 0 to disable  [0.9999]')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
@@ -71,6 +74,8 @@ def main(_):
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     lr_pl = tf.placeholder(tf.float32,[],name='learning_rate_pl')
+    acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
+    acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
     gen = cifar_chi_gan.generator
     dis = cifar_chi_gan.discriminator
@@ -142,7 +147,7 @@ def main(_):
 
         cls_op = optimizer_cls.minimize(loss_cls, var_list=dvars)
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.999)
+        ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = ema.apply(dvars)
 
         with tf.control_dependencies(update_ops_dis):
@@ -169,17 +174,22 @@ def main(_):
             tf.summary.image('gen_digits', gen_inp, 20, ['image'])
             tf.summary.image('input_images', unl, 1, ['image'])
 
+        with tf.name_scope('epoch_summary'):
+            tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
+            tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
+
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
         sum_op_cls = tf.summary.merge_all('cls')
         sum_op_im = tf.summary.merge_all('image')
+        sum_op_epoch = tf.summary.merge_all('epoch')
 
-    [print(var.name) for var in gvars]
+    # [print(var.name) for var in gvars]
     init_gen = [var.initializer for var in gvars][:-3]
 
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
-    [print(op.name) for op in update_ops_gen]
+    # update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    # update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
+    # [print(op.name) for op in update_ops_gen]
 
     '''//////perform training //////'''
     print('start training')
@@ -192,9 +202,9 @@ def main(_):
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
 
-        tvars = tf.trainable_variables()
-        print(" ... sanity check trainable variables ... ")
-        [print(v.name) for v in tvars]
+        # tvars = tf.trainable_variables()
+        # print(" ... sanity check trainable variables ... ")
+        # [print(v.name) for v in tvars]
 
         for epoch in range(1200):
             begin = time.time()
@@ -269,6 +279,9 @@ def main(_):
 
             test_acc /= nr_batches_test
 
+            sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
+                                                    acc_test_pl: test_acc})
+            writer.add_summary(sum, epoch)
 
             print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"

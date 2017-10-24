@@ -38,9 +38,8 @@ def discriminator(inp, is_training, init=False):
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
     x = nn.conv2d(x, 128, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    # x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    x = nn.conv2d(x, 128, padding='SAME', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
 
     x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
     x = tf.squeeze(x, [1, 2])
@@ -78,17 +77,3 @@ def generator(z_seed, is_training, init):
         output = nn.deconv2d(x, num_filters=3, filter_size=[5, 5], stride=[2, 2], nonlinearity=tf.tanh, init=init,
                              counters=counter)
     return output
-
-
-def deconv_weight_norm(x, num_filters, output_shape, filter_size=[5, 5], strides=[2, 2], activation=None):
-
-    V = tf.get_variable('V', shape=filter_size + [num_filters, int(x.get_shape()[-1])], dtype=tf.float32,
-                        initializer=tf.random_normal_initializer(0, 0.05), trainable=True)
-    g = tf.get_variable('g', [], tf.float32, trainable=True)
-    b = tf.get_variable('b', [num_filters], tf.float32)
-
-    W = g * tf.nn.l2_normalize(V,[0,1,3])
-    x = tf.nn.conv2d_transpose(x, W, output_shape=output_shape, strides=strides)
-    if activation is not None:
-        x = activation(x)
-    return x
