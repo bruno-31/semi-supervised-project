@@ -15,7 +15,7 @@ def distorted_image(inp):
     return x
 
 def preprocess_batch(batch):
-    x = tf.map_fn(distorted_image, batch, dtype=None, parallel_iterations=10)
+    x = tf.map_fn(distorted_image, batch, dtype=None, parallel_iterations=1)
     x = tf.image.resize_nearest_neighbor(x,[28,28])
     return x
 
@@ -40,7 +40,7 @@ def preprocess_batch(batch):
 with tf.Session() as sess:
     begin = time.time()
     print("tf")
-    x=sess.run(preprocess_batch(trainx[0:20]))
+    x=sess.run(preprocess_batch(trainx[0:100]))
     print('total time %0.2f'%(time.time()-begin))
 
 

@@ -20,9 +20,26 @@ def gaussian_noise_layer(input_layer, std):
     return input_layer + noise
 
 
+def distorted_image(inp):
+    x = inp
+    x = tf.random_crop(x,[5,5,3])
+    x = tf.image.random_flip_left_right(x)
+    return x
+
+def preprocess_batch(batch):
+    x = tf.map_fn(distorted_image, batch, dtype=None, parallel_iterations=10)
+    x = tf.image.resize_nearest_neighbor(x,[32,32])
+    return x
+
+
+
 def discriminator(inp, is_training, init=False):
     counter = {}
     x = tf.reshape(inp, [-1, 32, 32, 3])
+
+    # fn = tf.cond(is_training, preprocess_batch, tf.identity) # data aug for training
+    # x = fn(x)
+    x = tf.where(is_training, preprocess_batch(x), x)
 
     x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_0')
 
