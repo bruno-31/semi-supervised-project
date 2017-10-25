@@ -46,9 +46,9 @@ def discriminator(inp, is_training, init=False):
 
     intermediate_layer = x
 
-    cls_logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
+    cls_logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
 
-    dis_logits = nn.dense(x, 1, nonlinearity=None, init=init, counters=counter)
+    dis_logits = nn.dense(x, 1, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
 
     return cls_logits, dis_logits, intermediate_layer
 

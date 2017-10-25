@@ -3,7 +3,6 @@ import nn
 
 init_kernel = tf.random_normal_initializer(mean=0, stddev=0.05)
 
-
 def gaussian_noise_layer(input_layer, std, deterministic):
     noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
     # if deterministic or std==0:
@@ -13,7 +12,6 @@ def gaussian_noise_layer(input_layer, std, deterministic):
     y= tf.cond(deterministic, lambda :input_layer, lambda :input_layer+noise)
     return y
 
-
 def leakyReLu(x, alpha=0.2, name=None):
     if name:
         with tf.variable_scope(name):
@@ -21,36 +19,29 @@ def leakyReLu(x, alpha=0.2, name=None):
     else:
         return _leakyReLu_impl(x, alpha)
 
-
 def _leakyReLu_impl(x, alpha):
     return tf.nn.relu(x) - (alpha * tf.nn.relu(-x))
 
 
-def l2normalize(x):
-    epsilon = 1e-6
-    w = tf.get_variable('w', shape=[500, 28*28],initializer=init_kernel)
-    bias = tf.get_variable('b',shape=[28*28], initializer=tf.zeros_initializer())
-    s = tf.get_variable('s', shape=[],dtype=tf.float32,trainable=True, initializer=tf.ones_initializer)
-    w = w * s / (tf.sqrt(epsilon+tf.reduce_sum(tf.square(w))))
-    out = tf.matmul(x,w)+bias
-    return tf.nn.sigmoid(out)
+def discriminator(inp,z, is_training, init=False):
 
-def discriminator(inp, is_training, init=False):
-    counter = {}
-    x = inp
-    x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
-    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter)
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter)
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
-    inter_layer = x
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
+    #D(x)
+    x=tf.layers.conv2d(inp, 32,[3,3],padding='SAME')
+
+    x=tf.layers.conv2d(inp, 64,[3,3],padding='SAME',strides=[2,2]) #14*14
+    x=tf.layers.batch_normalization(x, is_training)
+    x = leakyReLu(x)
+
+    x=tf.layers.conv2d(inp, 128,[3,3],padding='SAME', strides=[2,2]) #7*7
+    x=tf.layers.batch_normalization(x, is_training)
+    x = leakyReLu(x)
+
+
+
+
+
+    #D(z)
+
     return logits, inter_layer
 
 
