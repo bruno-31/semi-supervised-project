@@ -9,17 +9,17 @@ import cifar_gan
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
-flags.DEFINE_integer("batch_size", 100, "batch size [128]")
+flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
-flags.DEFINE_integer('seed', 4, 'seed ')
-flags.DEFINE_integer('seed_data', 4, 'seed data')
+flags.DEFINE_integer('seed', 1, 'seed ')
+flags.DEFINE_integer('seed_data', 1, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 500, 'frequency image print tensorboard [500]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
-flags.DEFINE_float('ma_decay', 0.9999 , 'moving average testing, 0 to disable  [0.9999]')
+flags.DEFINE_float('ma_decay', 0.9999 , 'moving average for inference test set, 0 to disable  [0.9999]')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()

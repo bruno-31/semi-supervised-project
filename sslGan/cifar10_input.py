@@ -33,6 +33,7 @@ def _get_dataset(path,split):
     assert split == "test" or split == "train"
     dirname = "cifar-10-batches-py"
     # data_url = "http://10.217.128.198/datasets/cifar-10-python.tar.gz"
+    # data_url = "http://10.217.128.198/mnt/data_c/datasets/cifar-10-python.tar.gz"
     data_url = 'http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
     if not os.path.exists(os.path.join(path, dirname)):
         # Extract or download data

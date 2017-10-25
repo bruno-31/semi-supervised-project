@@ -26,17 +26,17 @@ def discriminator(inp, is_training, init=False):
 
     x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_0')
 
-    x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 32, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 16*16
+    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 96, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 16*16
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_1')
 
-    x = nn.conv2d(x, 64, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 32, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 64, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
+    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+    x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
-    x = nn.conv2d(x, 128, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    x = nn.conv2d(x, 192, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)
 
@@ -45,7 +45,7 @@ def discriminator(inp, is_training, init=False):
 
     intermediate_layer = x
 
-    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
+    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter, init_scale=0.1)
 
     return logits, intermediate_layer
 
