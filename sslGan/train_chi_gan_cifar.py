@@ -17,12 +17,14 @@ flags.DEFINE_integer('seed', 4, 'seed ')
 flags.DEFINE_integer('seed_data', 4, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
-flags.DEFINE_integer('freq_print', 100, 'frequency image print tensorboard [20]')
+flags.DEFINE_integer('freq_print', 500, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('gen_weight_fmatch', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('gen_weight_bin', 0.0 , 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average testing, 0 to disable  [0.9999]')
+flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
+
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
@@ -196,6 +198,8 @@ def main(_):
     # update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
     # [print(op.name) for op in update_ops_gen]
 
+    saver = tf.train.Saver()
+
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
@@ -234,6 +238,7 @@ def main(_):
 
             # training
             for t in range(nr_batches_train):
+
                 display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
@@ -292,6 +297,10 @@ def main(_):
                                                     acc_test_pl: test_acc,
                                                     lr_pl:lr})
             writer.add_summary(sum, epoch)
+
+            if epoch % FLAGS.freq_save == 0:
+                save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
+                print("Model saved in file: %s" % (save_path))
 
             print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"

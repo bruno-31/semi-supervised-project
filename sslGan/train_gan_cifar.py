@@ -14,6 +14,7 @@ flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
 flags.DEFINE_integer('seed', 1, 'seed ')
 flags.DEFINE_integer('seed_data', 1, 'seed data')
+flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 500, 'frequency image print tensorboard [500]')
@@ -189,6 +190,8 @@ def main(_):
 
     init_gen = [var.initializer for var in gvars][:-3]
 
+    saver = tf.train.Saver()
+
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
@@ -255,6 +258,7 @@ def main(_):
                                   feed_dict={is_training_pl: True, unl: trainx_unl[x:x + FLAGS.batch_size]})
                     writer.add_summary(sm, train_batch)
 
+
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train
             train_loss_gen /= nr_batches_train
@@ -277,6 +281,11 @@ def main(_):
                                                     acc_test_pl: test_acc,
                                                     lr_pl:lr})
             writer.add_summary(sum, epoch)
+
+
+            if epoch % FLAGS.freq_save == 0:
+                save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
+                print("Model saved in file: %s" % (save_path))
 
             print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f"
