@@ -1,6 +1,5 @@
 import os
 import time
-import sys
 import numpy as np
 import tensorflow as tf
 import cifar10_input
@@ -135,6 +134,8 @@ def main(_):
         tvars = tf.trainable_variables()
 
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
+        cvars = dvars[9:]
+
         gvars = [var for var in tvars if 'generator_model' in var.name]
         testvars = [var for var in tvars if 'model_test' in var.name]
 
@@ -144,14 +145,14 @@ def main(_):
 
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='gen_optimizer')
-        optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='cls_optimizer')
+        optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl/10, beta1=0.5, name='cls_optimizer')
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
 
-        cls_op = optimizer_cls.minimize(loss_cls, var_list=dvars)
+        cls_op = optimizer_cls.minimize(loss_cls, var_list=cvars)
 
         ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = ema.apply(dvars)

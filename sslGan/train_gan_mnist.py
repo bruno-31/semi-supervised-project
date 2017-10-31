@@ -8,7 +8,7 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
-flags.DEFINE_string('logdir', './log', 'log directory')
+flags.DEFINE_string('logdir', './log_mnist/000', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
 flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
@@ -34,7 +34,7 @@ def main(_):
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data')
     # load MNIST data
-    data = np.load('../data/mnist.npz')
+    data = np.load('./data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()

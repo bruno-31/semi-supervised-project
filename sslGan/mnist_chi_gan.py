@@ -2,7 +2,7 @@ import tensorflow as tf
 import nn
 
 init_kernel = tf.random_normal_initializer(mean=0, stddev=0.05)
-
+init_w = tf.random_normal_initializer(mean=0, stddev=0.1)
 
 def gaussian_noise_layer(input_layer, std, deterministic):
     noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
@@ -39,30 +39,30 @@ def discriminator(inp, is_training, init=False):
     counter = {}
     x = inp
     x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
-    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     inter_layer = x
 
     with tf.variable_scope('discriminator'):
         x1 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-        x1 = nn.dense(x1, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+        x1 = nn.dense(x1, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=True, init_w=init_w)
         x1 = gaussian_noise_layer(x1, std=0.5, deterministic=~is_training)
-        dis_logits = nn.dense(x1, 1, nonlinearity=None, init=init, counters=counter)
+        dis_logits = nn.dense(x1, 1, nonlinearity=None, init=init, counters=counter, train_scale=True, init_w=init_w)
 
     with tf.variable_scope('classifier'):
         x2 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-        x2 = nn.dense(x2, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+        x2 = nn.dense(x2, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=True, init_w=init_w)
         x2 = gaussian_noise_layer(x2, std=0.5, deterministic=~is_training)
-        cls_logits = nn.dense(x2, 10, nonlinearity=None, init=init, counters=counter)
+        cls_logits = nn.dense(x2, 10, nonlinearity=None, init=init, counters=counter, train_scale=True, init_w=init_w)
 
     return dis_logits, cls_logits, inter_layer
 

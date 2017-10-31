@@ -6,7 +6,7 @@ import tensorflow as tf
 import cifar10_input
 import cifar_gan
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")

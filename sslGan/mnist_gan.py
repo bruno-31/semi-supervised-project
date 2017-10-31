@@ -2,6 +2,7 @@ import tensorflow as tf
 import nn
 
 init_kernel = tf.random_normal_initializer(mean=0, stddev=0.05)
+init_w = tf.random_normal_initializer(mean=0, stddev=0.1)
 
 
 def gaussian_noise_layer(input_layer, std, deterministic):
@@ -40,24 +41,24 @@ def discriminator(inp, is_training, init=False):
     x = inp
 
     x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
-    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter,train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter,train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter,train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     inter_layer = x
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter)
+    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
     x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter)
+    logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter, train_scale=True, init_w=init_w)
 
 
     return logits, inter_layer

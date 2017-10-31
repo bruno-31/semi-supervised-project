@@ -141,18 +141,18 @@ def get_name(layer_name, counters):
     return name
 
 @add_arg_scope
-def dense(x, num_units, nonlinearity=None, init_scale=1., counters={},init=False, ema=None, **kwargs):
+def dense(x, num_units, nonlinearity=None, init_scale=1., counters={},init=False, ema=None, train_scale=True, init_w=tf.random_normal_initializer(0, 0.05),**kwargs):
     ''' fully connected layer '''
     name = get_name('dense', counters)
     with tf.variable_scope(name):
         if init:
             # data based initialization of parameters
-            V = tf.get_variable('V', [int(x.get_shape()[1]),num_units], tf.float32, tf.random_normal_initializer(0, 0.05), trainable=True)
+            V = tf.get_variable('V', [int(x.get_shape()[1]),num_units], tf.float32, init_w, trainable=True)
             V_norm = tf.nn.l2_normalize(V.initialized_value(), [0])
             x_init = tf.matmul(x, V_norm)
             m_init, v_init = tf.nn.moments(x_init, [0])
             scale_init = init_scale/tf.sqrt(v_init + 1e-10)
-            g = tf.get_variable('g', dtype=tf.float32, initializer=scale_init, trainable=True)
+            g = tf.get_variable('g', dtype=tf.float32, initializer=scale_init, trainable=train_scale)
             b = tf.get_variable('b', dtype=tf.float32, initializer=-m_init*scale_init, trainable=True)
             x_init = tf.reshape(scale_init,[1,num_units])*(x_init-tf.reshape(m_init,[1,num_units]))
             if nonlinearity is not None:
@@ -161,7 +161,7 @@ def dense(x, num_units, nonlinearity=None, init_scale=1., counters={},init=False
 
         else:
             V,g,b = get_vars_maybe_avg(['V','g','b'], ema)
-            tf.assert_variables_initialized([V,g,b])
+            # tf.assert_variables_initialized([V,g,b])
 
             # use weight normalization (Salimans & Kingma, 2016)
             x = tf.matmul(x, V)
@@ -194,7 +194,7 @@ def conv2d(x, num_filters, filter_size=[3,3], stride=[1,1], pad='SAME', nonlinea
 
         else:
             V, g, b = get_vars_maybe_avg(['V', 'g', 'b'], ema)
-            tf.assert_variables_initialized([V,g,b])
+            # tf.assert_variables_initialized([V,g,b])
 
             # use weight normalization (Salimans & Kingma, 2016)
             W = tf.reshape(g,[1,1,1,num_filters])*tf.nn.l2_normalize(V,[0,1,2])
@@ -225,7 +225,7 @@ def deconv2d(x, num_filters, filter_size=[3,3], stride=[1,1], pad='SAME', nonlin
             m_init, v_init = tf.nn.moments(x_init, [0,1,2])
             scale_init = init_scale/tf.sqrt(v_init + 1e-8)
             g = tf.get_variable('g', dtype=tf.float32, initializer=scale_init, trainable=True)
-            b = tf.get_variable('b', dtype=tf.float32, initializer=-m_init*scale_init, trainable=True)
+            b = tf.get_variable('b', dtype=tf.float32,initializer=-m_init*scale_init, trainable=True)
             x_init = tf.reshape(scale_init,[1,1,1,num_filters])*(x_init-tf.reshape(m_init,[1,1,1,num_filters]))
             if nonlinearity is not None:
                 x_init = nonlinearity(x_init)
@@ -233,7 +233,7 @@ def deconv2d(x, num_filters, filter_size=[3,3], stride=[1,1], pad='SAME', nonlin
 
         else:
             V, g, b = get_vars_maybe_avg(['V', 'g', 'b'], ema)
-            tf.assert_variables_initialized([V,g,b])
+            # tf.assert_variables_initialized #deprecated on tf 1.3
 
             # use weight normalization (Salimans & Kingma, 2016)V = t
             W = tf.reshape(g,[1,1,num_filters,1])*tf.nn.l2_normalize(V,[0,1,3])

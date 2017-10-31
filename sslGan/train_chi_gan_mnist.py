@@ -10,8 +10,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
-flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
-flags.DEFINE_string('logdir', './log', 'log directory')
+flags.DEFINE_string('logdir', './log_mnist/000', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
 flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
@@ -21,9 +20,11 @@ flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
 flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
 # weights loss
-flags.DEFINE_float('gen_cat_weight', 0., 'categorical generator weight [1.]')
-flags.DEFINE_float('gen_bin_weight', 0.1, 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_cat_weight', 1., 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_bin_weight', 0.0, 'categorical generator weight [1.]')
 flags.DEFINE_float('f_match_weight', 1, 'categorical generator weight [0.]')
+flags.DEFINE_float('cat_weight_dis', 0.1, 'categorical generator weight [1.]')
+
 
 FLAGS._parse_flags()
 print("\nParameters:")
@@ -48,7 +49,7 @@ def main(_):
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data  ... ')
     # load MNIST data
-    data = np.load('../data/mnist.npz')
+    data = np.load('./data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
@@ -102,7 +103,10 @@ def main(_):
         xentropy = tf.nn.sparse_softmax_cross_entropy_with_logits
         sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
 
-        loss_cls = tf.reduce_mean(xentropy(logits=logits_cls_lab, labels=lbl))
+        loss_cls_1 = tf.reduce_mean(xentropy(logits=logits_cls_lab, labels=lbl))
+        loss_cls_2 = tf.reduce_mean(xentropy(logits=logits_cls_gen, labels=lbl_fake))
+
+        loss_cls = loss_cls_1 + FLAGS.cat_weight_dis * loss_cls_2
 
         loss_dis_unl = tf.reduce_mean(sigmoid(logits=logits_dis_unl, labels=tf.ones([FLAGS.batch_size, 1])))
         loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size, 1])))
@@ -133,6 +137,8 @@ def main(_):
         tvars = tf.trainable_variables()
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
+        cvars = dvars[6:]
+        # [print(var.name) for var in cvars ]
         testvars = [var for var in tvars if 'model_test' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
