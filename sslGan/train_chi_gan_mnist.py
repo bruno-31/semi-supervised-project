@@ -20,10 +20,10 @@ flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
 flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
 # weights loss
-flags.DEFINE_float('gen_cat_weight', 1., 'categorical generator weight [1.]')
-flags.DEFINE_float('gen_bin_weight', 0.0, 'categorical generator weight [1.]')
-flags.DEFINE_float('f_match_weight', 1, 'categorical generator weight [0.]')
-flags.DEFINE_float('cat_weight_dis', 0.1, 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_cat_weight', 1.0, 'categorical generator weight [1.]')
+flags.DEFINE_float('gen_bin_weight', 1.0, 'categorical generator weight [1.]')
+flags.DEFINE_float('f_match_weight', 0.0, 'categorical generator weight [0.]')
+flags.DEFINE_float('cat_weight_dis', 0.0, 'categorical generator weight [1.]')
 
 
 FLAGS._parse_flags()
@@ -137,18 +137,20 @@ def main(_):
         tvars = tf.trainable_variables()
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
-        cvars = dvars[6:]
+        cvars = dvars[:]
         # [print(var.name) for var in cvars ]
+        # [print(var.name) for var in dvars ]
+
         testvars = [var for var in tvars if 'model_test' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
 
-        optimizer_cls = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='cls_optimizer')
+        optimizer_cls = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d/3, beta1=0.5, name='cls_optimizer')
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
-        train_cls_op = optimizer_cls.minimize(loss_cls, var_list=dvars)
+        train_cls_op = optimizer_cls.minimize(loss_cls, var_list=cvars)
         ema = tf.train.ExponentialMovingAverage(decay=0.9999)  # moving average for testing
         maintain_averages_op = ema.apply(dvars)
         with tf.control_dependencies([train_cls_op]):
@@ -182,8 +184,8 @@ def main(_):
             tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
         with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits_rnd_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['rnd_image'])
-            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 50, ['det_image'])
+            tf.summary.image('gen_digits_rnd_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 10, ['rnd_image'])
+            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 10, ['det_image'])
 
         sum_op_cls = tf.summary.merge_all('cls')
         sum_op_dis = tf.summary.merge_all('dis')
@@ -263,7 +265,7 @@ def main(_):
                 ran_to = (t + 1) * FLAGS.batch_size
                 feed_dict = {inp: testx[ran_from:ran_to],
                              lbl: testy[ran_from:ran_to],
-                             is_training_pl: False}
+                             is_training_pl: True}
                 test_acc += sess.run(accuracy_cls_test, feed_dict=feed_dict)
             test_acc /= nr_batches_test
 
