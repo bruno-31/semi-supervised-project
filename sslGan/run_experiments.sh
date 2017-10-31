@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-touch random_search00.txt
 
 logpath='./log_chigan'
 
+#param 1
 array1=(1 2 3 4 5)
 array2=(a b c d e)
 array3=(v w x y z)
@@ -20,7 +20,7 @@ do
         echo cuda = $CUDA_VISIBLE_DEVICES  task:${array[$cpt]}   cpt =$cpt
 #        python3 train_chi_gan.py
         ((cpt++))
-        sleep 3
+        sleep 1
     done &
 done
 wait
