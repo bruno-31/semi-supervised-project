@@ -17,13 +17,15 @@ flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
 flags.DEFINE_integer('freq_print', 100, 'image summary frequency [100]')
 flags.DEFINE_boolean('enable_print', False, 'enable generated digits printing [F]')
 flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
-flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
+flags.DEFINE_float('learning_rate_d', 0.00003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
 # weights loss
 flags.DEFINE_float('gen_cat_weight', 1.0, 'categorical generator weight [1.]')
 flags.DEFINE_float('gen_bin_weight', 1.0, 'categorical generator weight [1.]')
 flags.DEFINE_float('f_match_weight', 0.0, 'categorical generator weight [0.]')
 flags.DEFINE_float('cat_weight_dis', 0.0, 'categorical generator weight [1.]')
+flags.DEFINE_float('lambda_cls', 0.1, 'categorical generator weight [1.]')
+
 
 
 FLAGS._parse_flags()
@@ -90,7 +92,7 @@ def main(_):
     with tf.variable_scope('discriminator_model') as scope:
         dis(inp, is_training_pl, init=True)  # Data driven initialization
         scope.reuse_variables()
-        _, logits_cls_lab, _ = dis(inp, is_training_pl)
+        logits_dis_lab, logits_cls_lab, _ = dis(inp, is_training_pl)
         logits_dis_unl, _, layer_real = dis(unl, is_training_pl)
         logits_dis_gen, logits_cls_gen, layer_fake = dis(gen_inp, is_training_pl)
 
@@ -104,9 +106,9 @@ def main(_):
         sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
 
         loss_cls_1 = tf.reduce_mean(xentropy(logits=logits_cls_lab, labels=lbl))
-        loss_cls_2 = tf.reduce_mean(xentropy(logits=logits_cls_gen, labels=lbl_fake))
-
-        loss_cls = loss_cls_1 + FLAGS.cat_weight_dis * loss_cls_2
+        # loss_cls_2 = tf.reduce_mean(xentropy(logits=logits_cls_gen, labels=lbl_fake))
+        loss_cls_2 = tf.reduce_mean(sigmoid(logits=logits_dis_lab, labels=tf.ones_like(logits_dis_lab)))
+        loss_cls = loss_cls_1 + FLAGS.lambda_cls * loss_cls_2
 
         loss_dis_unl = tf.reduce_mean(sigmoid(logits=logits_dis_unl, labels=tf.ones([FLAGS.batch_size, 1])))
         loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size, 1])))
@@ -145,7 +147,7 @@ def main(_):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
 
-        optimizer_cls = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d/3, beta1=0.5, name='cls_optimizer')
+        optimizer_cls = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='cls_optimizer')
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
@@ -204,6 +206,12 @@ def main(_):
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         batch = 0
         print('data driven initialization done\n')
+
+        print(sess.run(lbl_fake, {is_training_pl: True}))
+
+        print(sess.run(lbl_fake, {is_training_pl: False}))
+
+
         for epoch in range(200):
             begin = time.time()
 
@@ -268,6 +276,7 @@ def main(_):
                              is_training_pl: True}
                 test_acc += sess.run(accuracy_cls_test, feed_dict=feed_dict)
             test_acc /= nr_batches_test
+
 
             # Testing generator
             sm = sess.run(sum_op_im_det, feed_dict={is_training_pl:False})
