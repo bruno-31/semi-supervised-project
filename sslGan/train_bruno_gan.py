@@ -117,14 +117,16 @@ def main(_):
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
         loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
-        loss_gen = 0 * loss_features_matching \
-                   + 1 * loss_gen_bin
+        loss_gen = 1 * loss_features_matching \
+                   + 0 * loss_gen_bin
 
         # loss_q = 0.01 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))\
         #                 + 1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
 
         loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
+
+
 
         loss_c += loss_q
         loss_gen += loss_q
