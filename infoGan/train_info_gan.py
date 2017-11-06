@@ -15,6 +15,8 @@ flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
 flags.DEFINE_integer('labeled', 10, 'labeled image per class[100]')
 flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
+flags.DEFINE_float('learning_rate_q', 0.003, 'learning_rate gen[0.003]')
+
 flags.DEFINE_float('unl_weight', 1, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1, 'labeled weight [1.]')
 FREQ_PRINT = 1000
@@ -34,7 +36,7 @@ def main(_):
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data')
     # load MNIST data
-    data = np.load('./data/mnist.npz')
+    data = np.load('../data/mnist.npz')
     trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
@@ -44,27 +46,12 @@ def main(_):
     testy = data['y_test'].astype(np.int32)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
-    # select labeled data
-    inds = rng_data.permutation(trainx.shape[0])
-    trainx = trainx[inds]
-    trainy = trainy[inds]
-    txs = []
-    tys = []
-    for j in range(10):
-        txs.append(trainx[trainy == j][:FLAGS.labeled])
-        tys.append(trainy[trainy == j][:FLAGS.labeled])
-    txs = np.concatenate(txs, axis=0)
-    tys = np.concatenate(tys, axis=0)
-
-    print('labeled digits : ', len(tys))
-
 
     '''construct graph'''
     print('constructing graph')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='labeled_data_input_pl')
-    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
-    lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
+    code_pl = tf.placeholder(tf.float32, [FLAGS.batch_size, 10], name='code_gen_pl')
     acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
@@ -77,77 +64,62 @@ def main(_):
     with tf.variable_scope('discriminator_model') as scope:
         init_weight_op, _ = dis(inp, is_training_pl, True)
         scope.reuse_variables()
-        logits_lab, _ = dis(inp, is_training_pl)
-        logits_unl, layer_real = dis(unl, is_training_pl)
-        logits_gen, layer_fake = dis(gen_inp, is_training_pl)
+        dis_logit_real, _ = dis(inp, is_training_pl, False)
+        dis_logit_fake, Q_c_given_x = dis(gen_inp, is_training_pl, False)
 
-    with tf.variable_scope("model_test") as test_scope:
-        _,_ = dis(inp, is_training_pl,True)
-        test_scope.reuse_variables()
-        logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
-        xentropy = tf.nn.sparse_softmax_cross_entropy_with_logits
-        sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
-        loss_cls_1 = tf.reduce_mean(xentropy(logits=logits_cls_lab, labels=lbl))
+        cross_ent = tf.reduce_mean(-tf.reduce_sum(tf.log(Q_c_given_x + 1e-8) * code_pl, 1))
+        ent = tf.reduce_mean(-tf.reduce_sum(tf.log(code_pl + 1e-8) * code_pl, 1))
+        Q_loss = cross_ent + ent
 
-        # loss_lab = xentropy(logits=logits_lab, labels=)
-        # loss_unl = xentropy(logits=logits_unl, labels=)
-        # loss_fake = xentropy(logits=logits_gen, labels=))
-        # loss_gen = xentropy(logits=, labels=)
+        D_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(dis_logit_fake,tf.zeros_like(dis_logit_fake))) + \
+                 tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(dis_logit_real,tf.ones_like(dis_logit_real)))
+
+        G_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(dis_logit_fake,tf.ones_like(dis_logit_real)))
 
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
         tvars = tf.trainable_variables()
-        dvars = [var for var in tvars if 'discriminator_model' in var.name]
+        dvars = [var for var in tvars if 'D_model' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
-        testvars = [var for var in tvars if 'model_test' in var.name]
+        qvars = [var for var in tvars if 'Q_model' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         update_ops_gen = [x for x in update_ops if ('generator_model' in x.name)]
-        update_ops_dis = [x for x in update_ops if ('discriminator_model' in x.name)]
 
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
+        optimizer_q = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_q, beta1=0.5, name='gen_optimizer')
 
-        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
-        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
-        maintain_averages_op = ema.apply(dvars)
-
-        with tf.control_dependencies([train_dis_op]):
-                training_op = tf.group(maintain_averages_op)
-
-        copy_graph = [tf.assign(x,ema.average(y)) for x,y in zip(testvars,dvars)]
-
+        train_dis_op = optimizer_dis.minimize(D_loss, var_list=dvars)
+        train_dis_op = optimizer_q.minimize(Q_loss, var_list=qvars)
         with tf.control_dependencies(update_ops_gen):
-            train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
+            train_gen_op = optimizer_gen.minimize(G_loss, var_list=gvars)
 
 
     with tf.name_scope('summary'):
-        with tf.name_scope('dis_summary'):
-            tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
-            tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
-            tf.summary.scalar('classifier_accuracy', accuracy, ['dis'])
-            tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
-            tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
-            tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
-            tf.summary.scalar('loss_dis',loss_dis,['dis'])
+        # with tf.name_scope('dis_summary'):
+        #     tf.summary.scalar('loss_labeled', loss_lab, ['dis'])
+        #     tf.summary.scalar('loss_unlabeled', loss_unl, ['dis'])
+        #     tf.summary.scalar('classifier_accuracy', accuracy, ['dis'])
+        #     tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
+        #     tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
+        #     tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
+        #     tf.summary.scalar('loss_dis',loss_dis,['dis'])
+        #
+        # with tf.name_scope('gen_summary'):
+        #     tf.summary.scalar('loss_generator', loss_gen, ['gen'])
+        #     tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
-        with tf.name_scope('gen_summary'):
-            tf.summary.scalar('loss_generator', loss_gen, ['gen'])
-            tf.summary.scalar('fool_rate', fool_rate, ['gen'])
-
-        with tf.name_scope('epoch_summary'):
-            tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
-            tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
 
         with tf.name_scope('image_summary'):
             tf.summary.image('gen_digits', tf.reshape(gen_inp, [-1, 28, 28, 1]), 20, ['image'])
 
-        sum_op_dis = tf.summary.merge_all('dis')
-        sum_op_gen = tf.summary.merge_all('gen')
+        # sum_op_dis = tf.summary.merge_all('dis')
+        # sum_op_gen = tf.summary.merge_all('gen')
         sum_op_im = tf.summary.merge_all('image')
-        sum_op_epoch = tf.summary.merge_all('epoch')
+        # sum_op_epoch = tf.summary.merge_all('epoch')
 
     '''//////perform training //////'''
     print('start training')
@@ -162,15 +134,6 @@ def main(_):
         for epoch in range(200):
             begin = time.time()
 
-            # construct randomly permuted minibatches
-            trainx = []
-            trainy = []
-            for t in range(int(np.ceil(trainx_unl.shape[0] / float(txs.shape[0])))):  # same size lbl and unlb
-                inds = rng.permutation(txs.shape[0])
-                trainx.append(txs[inds])
-                trainy.append(tys[inds])
-            trainx = np.concatenate(trainx, axis=0)
-            trainy = np.concatenate(trainy, axis=0)
             trainx_unl = trainx_unl[rng.permutation(trainx_unl.shape[0])]  # shuffling unl dataset
             trainx_unl2 = trainx_unl2[rng.permutation(trainx_unl2.shape[0])]
 
@@ -185,6 +148,7 @@ def main(_):
                              lbl: trainy[ran_from:ran_to],
                              unl: trainx_unl[ran_from:ran_to],
                              is_training_pl: True}
+
                 _, ll, lu, acc, sm = sess.run([training_op, loss_lab, loss_unl, accuracy, sum_op_dis],
                                               feed_dict=feed_dict)
                 train_loss_lab += ll

@@ -38,30 +38,31 @@ def l2normalize(x):
 def discriminator(inp, is_training, init=False):
     counter = {}
     x = inp
-    x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
-    x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
+    with tf.variable_scope('D_weights'):
 
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
+        x = gaussian_noise_layer(x, std=0.3,deterministic= ~is_training)
+        x = nn.dense(x, 1000, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
+        x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x = nn.dense(x, 500, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
+        x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
-    x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
-    x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
+        x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
-    inter_layer = x
+        x = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
+        x = nn.dense(x, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
 
-    with tf.variable_scope('discriminator'):
+        inter_layer = x
+
         # x1 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
         # x1 = nn.dense(x1, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
         x1 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
         dis_logits = nn.dense(x1, 1, nonlinearity=None, init=init, counters=counter, train_scale=True, init_w=init_w)
 
-    with tf.variable_scope('classifier'):
+    with tf.variable_scope('Q_weights'):
         # x2 = tf.layers.dropout(x, rate=0.5, training=is_training)
         # # x2 = gaussian_noise_layer(x, std=0.5, deterministic=~is_training)
         # x2 = nn.dense(x2, 250, nonlinearity=tf.nn.relu, init=init, counters=counter, train_scale=False, init_w=init_w)
@@ -71,17 +72,11 @@ def discriminator(inp, is_training, init=False):
 
     return dis_logits, cls_logits, inter_layer
 
-def generator(batch_size,is_training):
+def generator(batch_size,code,is_training):
 
-    z_seed = tf.random_uniform([batch_size, 100],name='z_seed')
+    z_seed = tf.random_uniform([batch_size, 100], name='z_seed')
+    seed = tf.concat([z_seed, code],axis=1)
 
-    # to test categorical generation during testing mode
-    # deterministic_labels = tf.cast(tf.expand_dims(tf.tile(tf.range(0,10),[10]),1), dtype=tf.float32)
-    deterministic_labels = tf.ones([batch_size,1])*4
-    random_labels = tf.floor(tf.random_uniform([batch_size,1], name='label_seed')*10) #random integer labels in [0,10]
-    label_seed = tf.where(is_training, random_labels, deterministic_labels)
-
-    seed = tf.concat([z_seed, label_seed],axis=1)
     with tf.variable_scope('dense1'):
         x = tf.layers.dense(seed, 500, name='fc1', activation=None)
         x = tf.layers.batch_normalization(x,training=is_training)
@@ -93,4 +88,4 @@ def generator(batch_size,is_training):
     with tf.variable_scope('dense3'):
         x = l2normalize(x)
 
-    return x, tf.cast(tf.squeeze(label_seed), dtype=tf.int32)
+    return x
