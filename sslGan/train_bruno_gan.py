@@ -117,11 +117,18 @@ def main(_):
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
         loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
-        loss_gen = FLAGS.f_match_weight * loss_features_matching \
-                   + FLAGS.gen_bin_weight * loss_gen_bin
+        loss_gen = 0 * loss_features_matching \
+                   + 1 * loss_gen_bin
 
-        loss_q = 0.01 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))\
-                        + 1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
+        # loss_q = 0.01 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))\
+        #                 + 1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
+
+        loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
+        loss_c = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
+
+        loss_c += loss_q
+        loss_gen += loss_q
+        loss_dis += loss_q
 
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
@@ -143,7 +150,7 @@ def main(_):
         disvars = [var for var in tvars if 'discriminator_model' in var.name]
 
 
-        [print(var.name) for var in cvars ]
+        [print(var.name) for var in disvars ]
         print('')
         [print(var.name) for var in dvars ]
         print('')
@@ -159,7 +166,7 @@ def main(_):
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
-        train_cls_op = optimizer_cls.minimize(loss_q, var_list=cvars+gvars)
+        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars+gvars)
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
