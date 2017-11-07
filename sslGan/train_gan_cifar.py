@@ -1,10 +1,12 @@
 import os
 import time
-from utils import *
+
 import numpy as np
 import tensorflow as tf
+
 import cifar10_input
 import cifar_gan
+from utils import *
 
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
