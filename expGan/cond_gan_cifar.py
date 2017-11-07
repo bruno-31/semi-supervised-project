@@ -20,7 +20,7 @@ def gaussian_noise_layer(input_layer, std):
     return input_layer + noise
 
 
-def discriminator(inp, is_training, init=False):
+def discriminator(inp, is_training):
     x = tf.reshape(inp, [-1, 32, 32, 3])
 
     x = tf.layers.conv2d(x, 96, [3, 3], padding='SAME')
@@ -69,5 +69,19 @@ def discriminator(inp, is_training, init=False):
     return logits, intermediate_layer
 
 
-def generator(z_seed, is_training, init):
+def generator(batch_size,code, is_training):
+
+    z_seed = tf.random_uniform([batch_size, 100], name='z_seed')
+    seed = tf.concat([z_seed, code], axis=1)
+
+    with tf.variable_scope('dense1'):
+        x = tf.layers.dense(seed, 500, name='fc1', activation=None)
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.nn.relu(x)
+
+    with tf.variable_scope('dense2'):
+        x = tf.layers.dense(x, 500, name='fc1', activation=None)
+        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.nn.softplus(x)
+
     return

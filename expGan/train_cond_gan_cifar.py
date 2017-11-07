@@ -1,11 +1,11 @@
 import os
 import sys
 import time
-
+from data import cifar10_input
 import numpy as np
 import tensorflow as tf
 
-from expGan.bruno_gan import generator, discriminator
+from cond_gan_cifar import generator, discriminator
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -56,15 +56,12 @@ def main(_):
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data  ... ')
-    # load MNIST data
-    data = np.load('./data/mnist.npz')
-    trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
+    # load CIFAR-10
+    trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
+    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
-    trainy = np.concatenate([data['y_train'], data['y_valid']]).astype(np.int32)
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
-    testx = data['x_test'].astype(np.float32)
-    testy = data['y_test'].astype(np.int32)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
     # select labeled data
@@ -78,15 +75,18 @@ def main(_):
         tys.append(trainy[trainy == j][:FLAGS.labeled])
     txs = np.concatenate(txs, axis=0)
     tys = np.concatenate(tys, axis=0)
-    print('labeled digits : ', len(tys))
+
+    # print('labeled images : ', len(tys))
 
     '''construct graph'''
     print('construct graph')
-    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='labeled_data_input_pl')
-    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
-    lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
+    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='unlabeled_data_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
+    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
+    lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
+    lr_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
     lbl_fake = tf.placeholder(tf.float32, [FLAGS.batch_size, 10], name='label_fake_pl')
+
 
     gen = generator
     dis = discriminator
@@ -95,16 +95,14 @@ def main(_):
         gen_inp = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl)
 
     with tf.variable_scope('discriminator_model') as scope:
-        dis(inp, is_training_pl, init=True)  # Data driven initialization
-        scope.reuse_variables()
         logits_dis_lab, logits_cls_lab, _ = dis(inp, is_training_pl)
+        scope.reuse_variables()
         logits_dis_unl, _, layer_real = dis(unl, is_training_pl)
         logits_dis_gen, logits_cls_gen, layer_fake = dis(gen_inp, is_training_pl)
 
     with tf.variable_scope("model_test") as test_scope:
-        dis(inp, is_training_pl, True)
-        test_scope.reuse_variables()
-        _, logits_test, _ = dis(inp, is_training_pl, False)
+        _, logits_test, _ = dis(inp, is_training_pl)
+
 
     with tf.name_scope('loss_functions'):
         sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
@@ -120,21 +118,13 @@ def main(_):
         loss_gen = 1 * loss_features_matching \
                    + 0 * loss_gen_bin
 
-        # loss_q = 0.01 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))\
-        #                 + 1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl,10)))
-
         loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl, 10)))
 
-        # cond_ent = tf.reduce_mean(-tf.reduce_sum(tf.log(logits_cls_gen + 1e-6) * lbl_fake, 1))
-        # ent = tf.reduce_mean(-tf.reduce_sum(tf.log(lbl_fake + 1e-6) * lbl_fake, 1))
-        # loss_q = 0.1*(cond_ent + ent)
-
         loss_c += loss_q
         loss_gen += loss_q
         loss_dis += loss_q
-
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
@@ -145,6 +135,7 @@ def main(_):
         accuracy_cls = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         correct_pred_test = tf.equal(tf.cast(tf.argmax(logits_test, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_cls_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
+
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
