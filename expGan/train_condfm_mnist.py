@@ -1,12 +1,11 @@
 import os
 import sys
 import time
-from data import cifar10_input
+
 import numpy as np
 import tensorflow as tf
 
-from cond_gan_cifar import generator, discriminator
-# from cifar_chi_gan import generator, discriminator
+from cond_gan_mnist import generator, discriminator
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -48,21 +47,46 @@ def cat_z():
     return array
 
 
+def balance_z():
+    codes = []
+    for i in range(10):
+        codes.append(np.ones(10) * i)
+    codes = np.concatenate(codes)
+
+    def to_one_hot(arr,depth=10):
+        array = np.zeros([arr.shape[0],depth])
+        array[range(arr.shape[0]),arr] = 1
+        return array
+    return to_one_hot(codes.astype(int),depth=10)
+
+def std_loss(layers):
+    layer_split = tf.split(layers, 10, axis=0)
+    def std_tensor(x):
+        _, std = tf.nn.moments(x, axes=[0])
+        return std
+
+    y = list(map(std_tensor, layer_split))
+    return tf.nn.l2_loss(y)
+
+
+
 def main(_):
     if not os.path.exists(FLAGS.logdir):
         os.mkdir(FLAGS.logdir)
-
     # Random seed
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
     tf.set_random_seed(FLAGS.seed_tf)
     print('loading data  ... ')
-    # load CIFAR-10
-    trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
-    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+    # load MNIST data
+    data = np.load('./data/mnist.npz')
+    trainx = np.concatenate([data['x_train'], data['x_valid']], axis=0).astype(np.float32)
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
+    trainy = np.concatenate([data['y_train'], data['y_valid']]).astype(np.int32)
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
+    testx = data['x_test'].astype(np.float32)
+    testy = data['y_test'].astype(np.int32)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
     # select labeled data
@@ -76,37 +100,33 @@ def main(_):
         tys.append(trainy[trainy == j][:FLAGS.labeled])
     txs = np.concatenate(txs, axis=0)
     tys = np.concatenate(tys, axis=0)
-
-    # print('labeled images : ', len(tys))
+    print('labeled digits : ', len(tys))
 
     '''construct graph'''
     print('construct graph')
-    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='unlabeled_data_input_pl')
-    is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
-    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
+    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='labeled_data_input_pl')
+    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 28 * 28], name='unlabeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
-    lr_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
+    is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     lbl_fake = tf.placeholder(tf.float32, [FLAGS.batch_size, 10], name='label_fake_pl')
-
 
     gen = generator
     dis = discriminator
 
-    with tf.variable_scope('generator_model') as scope:
-        gen(lbl_fake, is_training_pl, init=True)
-        scope.reuse_variables()
-        gen_inp = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl, init=False)
+    with tf.variable_scope('generator_model'):
+        gen_inp = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl)
 
     with tf.variable_scope('discriminator_model') as scope:
-        dis(unl, is_training_pl, init=True)
+        dis(inp, is_training_pl, init=True)  # Data driven initialization
         scope.reuse_variables()
         logits_dis_lab, logits_cls_lab, _ = dis(inp, is_training_pl)
         logits_dis_unl, _, layer_real = dis(unl, is_training_pl)
         logits_dis_gen, logits_cls_gen, layer_fake = dis(gen_inp, is_training_pl)
 
     with tf.variable_scope("model_test") as test_scope:
-        _, logits_test, _ = dis(inp, is_training_pl)
-
+        dis(inp, is_training_pl, True)
+        test_scope.reuse_variables()
+        _, logits_test, _ = dis(inp, is_training_pl, False)
 
     with tf.name_scope('loss_functions'):
         sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
@@ -115,20 +135,24 @@ def main(_):
         loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size, 1])))
         loss_dis = loss_dis_unl + loss_dis_gen
 
+
+
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
         loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
-        loss_gen = 1 * loss_features_matching \
-                   + 0 * loss_gen_bin
+        loss_gen = 0 * loss_features_matching + 1 * loss_gen_bin
 
-        loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
+        loss_q = 0.001 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl, 10)))
 
+        # variance leayer conditioned to each label
+        # loss_c += .001 * std_loss(layer_fake)
         loss_c += loss_q
-        loss_gen += loss_q
-        loss_dis += loss_q
+        # loss_gen += loss_q
+        # loss_dis += loss_q
+
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
@@ -139,7 +163,6 @@ def main(_):
         accuracy_cls = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         correct_pred_test = tf.equal(tf.cast(tf.argmax(logits_test, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_cls_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
-
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -161,8 +184,8 @@ def main(_):
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
-        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars + disvars + qvars)
-        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars + qvars + dvars + gvars)
+        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars + disvars)
+        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars + qvars + gvars)
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
@@ -183,8 +206,9 @@ def main(_):
             tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
 
         with tf.name_scope('cls_summary'):
-            tf.summary.scalar('loss_cls', loss_q, ['cls'])
+            tf.summary.scalar('loss_cls_fake', loss_q, ['cls'])
             tf.summary.scalar('classifier_accuracy', accuracy_cls, ['cls'])
+            tf.summary.scalar('clustering_std', std_loss(layer_fake), ['cls'])
 
         with tf.name_scope('gen_summary'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
@@ -194,7 +218,7 @@ def main(_):
 
         with tf.name_scope('image_summary'):
             tf.summary.image('gen_digits_rnd_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 8, ['rnd_image'])
-            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 8, ['deter_image'])
+            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 30, ['deter_image'])
 
         sum_op_cls = tf.summary.merge_all('cls')
         sum_op_dis = tf.summary.merge_all('dis')
@@ -254,7 +278,7 @@ def main(_):
                              lbl: trainy[ran_from:ran_to],
                              is_training_pl: True,
                              lbl_fake: cat_z()}
-                _, lc, acc, sm = sess.run([train_cls_op_ema, loss_q, accuracy_cls, sum_op_cls], feed_dict=feed_dict)
+                _, lc, acc, sm = sess.run([train_cls_op_ema, loss_c, accuracy_cls, sum_op_cls], feed_dict=feed_dict)
                 train_acc += acc
                 train_loss_cls += lc
                 writer.add_summary(sm, batch)

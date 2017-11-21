@@ -135,7 +135,6 @@ def main(_):
         loss_gen += loss_q
         loss_dis += loss_q
 
-
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
         accuracy_dis = 0.5 * accuracy_dis_unl + 0.5 * accuracy_dis_gen
