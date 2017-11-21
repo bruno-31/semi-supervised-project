@@ -135,24 +135,26 @@ def main(_):
         loss_dis_gen = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.zeros([FLAGS.batch_size, 1])))
         loss_dis = loss_dis_unl + loss_dis_gen
 
-
-
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
         loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
         loss_gen = 0 * loss_features_matching + 1 * loss_gen_bin
 
-        loss_q = 0.001 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
+        loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl, 10)))
 
         # variance leayer conditioned to each label
-        # loss_c += .001 * std_loss(layer_fake)
-        loss_c += loss_q
-        # loss_gen += loss_q
-        # loss_dis += loss_q
+        loss_std = .001 * std_loss(layer_fake)
 
+        loss_gen += loss_q
+        # loss_dis += loss_q
+        loss_c += loss_q
+
+        # loss_gen += loss_std
+        # loss_dis += loss_std
+        # loss_c += loss_std
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
@@ -185,7 +187,7 @@ def main(_):
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars + disvars)
-        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars + qvars + gvars)
+        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars + qvars)
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
