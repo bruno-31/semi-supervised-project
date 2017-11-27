@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-from data import cifar10_input
+import cifar10_input
 import numpy as np
 import tensorflow as tf
 
@@ -18,9 +18,11 @@ flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
 flags.DEFINE_integer('freq_print', 100, 'image summary frequency [100]')
 flags.DEFINE_boolean('enable_print', False, 'enable generated digits printing [F]')
 flags.DEFINE_integer('labeled', 10, 'labeled image per class[10]')
-flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
-flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
-flags.DEFINE_float('learning_rate_c', 0.003, 'learning_rate gen[0.003]')
+flags.DEFINE_float('learning_rate_d', 0.0003, 'learning_rate dis[0.003]')
+flags.DEFINE_float('learning_rate_g', 0.0003, 'learning_rate gen[0.003]')
+flags.DEFINE_float('learning_rate_c', 0.0003, 'learning_rate gen[0.003]')
+flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
+
 # weights loss
 flags.DEFINE_float('gen_cat_weight', 0.0, 'categorical generator weight [1.]')
 flags.DEFINE_float('gen_bin_weight', 1.0, 'categorical generator weight [1.]')
@@ -93,18 +95,20 @@ def main(_):
     dis = discriminator
 
     with tf.variable_scope('generator_model') as scope:
-        gen(lbl_fake, is_training_pl, init=True)
+        gen(FLAGS.batch_size,lbl_fake, is_training_pl, init=True)
         scope.reuse_variables()
         gen_inp = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl, init=False)
 
     with tf.variable_scope('discriminator_model') as scope:
-        dis(unl, is_training_pl, init=True)
+        dis(inp, is_training_pl, init=True)
         scope.reuse_variables()
         logits_dis_lab, logits_cls_lab, _ = dis(inp, is_training_pl)
         logits_dis_unl, _, layer_real = dis(unl, is_training_pl)
         logits_dis_gen, logits_cls_gen, layer_fake = dis(gen_inp, is_training_pl)
 
-    with tf.variable_scope("model_test") as test_scope:
+    with tf.variable_scope("model_test") as scope:
+        _, _, _ = dis(inp, is_training_pl, init=True)
+        scope.reuse_variables()
         _, logits_test, _ = dis(inp, is_training_pl)
 
 
@@ -122,13 +126,14 @@ def main(_):
         loss_gen = 1 * loss_features_matching \
                    + 0 * loss_gen_bin
 
-        loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl, 10)))
 
-        loss_c += loss_q
-        loss_gen += loss_q
-        loss_dis += loss_q
+        loss_q = 0.1 * tf.reduce_mean(
+            tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
+        # loss_c += loss_q
+        # loss_gen += loss_q
+        # loss_dis += loss_q
 
         accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(logits_dis_unl, 0), tf.float32))
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(logits_dis_gen, 0), tf.float32))
@@ -144,14 +149,20 @@ def main(_):
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
         tvars = tf.trainable_variables()
-        dvars = [var for var in tvars if 'discriminator_model/D_weights' in var.name]
+        dvars = [var for var in tvars if 'discriminator_model/d_weights' in var.name]
+        cvars = [var for var in tvars if 'discriminator_model/c_weights' in var.name]
         gvars = [var for var in tvars if 'generator_model' in var.name]
-        qvars = [var for var in tvars if 'discriminator_model/Q_weights' in var.name]
-        disvars = [var for var in tvars if 'discriminator_model/shared_weights' in var.name]
+        sharedvars = [var for var in tvars if 'discriminator_model/shared_weights' in var.name]
         copyvars = [var for var in tvars if 'discriminator_model' in var.name]
 
-        [print(var.name) for var in dvars + disvars + qvars]
-        print('')
+        # [print(var.name) for var in sharedvars]
+        # print('')
+        # [print(var.name) for var in dvars]
+        # print('')
+        # [print(var.name) for var in cvars]
+        # print('')
+        # [print(var.name) for var in gvars]
+        # print('')
 
         testvars = [var for var in tvars if 'model_test' in var.name]
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -161,8 +172,8 @@ def main(_):
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_d, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
-        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars + disvars + qvars)
-        train_cls_op = optimizer_cls.minimize(loss_c, var_list=disvars + qvars + dvars + gvars)
+        train_dis_op = optimizer_dis.minimize(loss_dis, var_list=sharedvars + dvars)
+        train_cls_op = optimizer_cls.minimize(loss_c, var_list=sharedvars + cvars)
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
@@ -193,8 +204,8 @@ def main(_):
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits_rnd_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 8, ['rnd_image'])
-            tf.summary.image('gen_digits_deter_class', tf.reshape(gen_inp, [-1, 28, 28, 1]), 8, ['deter_image'])
+            tf.summary.image('gen_digits_rnd_class', gen_inp, 8, ['rnd_image'])
+            tf.summary.image('gen_digits_deter_class', gen_inp, 8, ['deter_image'])
 
         sum_op_cls = tf.summary.merge_all('cls')
         sum_op_dis = tf.summary.merge_all('dis')
@@ -202,17 +213,27 @@ def main(_):
         sum_op_im_rnd = tf.summary.merge_all('rnd_image')
         sum_op_im_deter = tf.summary.merge_all('deter_image')
 
+
+    init_gen = [var.initializer for var in gvars][:-3]
+    [print(var.name) for var in init_gen]
+
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
-        init = tf.global_variables_initializer()
+        # init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict={inp: trainx_unl[0:FLAGS.batch_size], is_training_pl: True})
+        # sess.run(init, feed_dict={inp: trainx_unl[0:FLAGS.batch_size], lbl_fake:cat_z(),is_training_pl: True})
+
+        feed_dict_init = {inp: trainx_unl[:FLAGS.batch_size], lbl_fake:cat_z(), is_training_pl: True}
+        sess.run(init_gen, feed_dict_init)  # pre init of non data dependent layers
+        init = tf.global_variables_initializer()
+        sess.run(init, feed_dict_init)  # Data-Dep
+
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         batch = 0
         print('data driven initialization done\n')
 
-        for epoch in range(200):
+        for epoch in range(1200):
             begin = time.time()
 
             # construct randomly permuted minibatches

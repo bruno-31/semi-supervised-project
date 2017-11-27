@@ -25,32 +25,36 @@ def discriminator(inp, is_training, init=False):
     counter = {}
     x = tf.reshape(inp, [-1, 32, 32, 3])
 
-    x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_0')
+    with tf.variable_scope('shared_weights'):
 
-    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 96, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 16*16
-    x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_1')
+        x = tf.layers.dropout(x, rate=0.2, training=is_training, name='dropout_0')
 
-    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
-    x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
-    x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
+        x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+        x = nn.conv2d(x, 96, nonlinearity=leakyReLu, init=init, counters=counter)
+        x = nn.conv2d(x, 96, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 16*16
+        x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_1')
 
-    x = nn.conv2d(x, 192, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
-    x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+        x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+        x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
+        x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
+        x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
-    x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
-    x = tf.squeeze(x, [1, 2])
+        x = nn.conv2d(x, 192, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+        x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+        x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
 
-    intermediate_layer = x
+        x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
+        x = tf.squeeze(x, [1, 2])
 
-    cls_logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
+        intermediate_layer = x
 
-    dis_logits = nn.dense(x, 1, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
+    with tf.variable_scope('c_weights'):
+        cls_logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
 
-    return cls_logits, dis_logits, intermediate_layer
+    with tf.variable_scope('d_weights'):
+        dis_logits = nn.dense(x, 1, nonlinearity=None, init=init, counters=counter,init_scale=0.1)
+
+    return dis_logits, cls_logits,  intermediate_layer
 
 
 def generator(batch_size, code, is_training, init):

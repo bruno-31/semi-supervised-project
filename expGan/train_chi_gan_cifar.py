@@ -136,7 +136,7 @@ def main(_):
         tvars = tf.trainable_variables()
 
         dvars = [var for var in tvars if 'discriminator_model' in var.name]
-        cvars = dvars[9:]
+        cvars = dvars[:]
         gvars = [var for var in tvars if 'generator_model' in var.name]
         testvars = [var for var in tvars if 'model_test' in var.name]
 
@@ -146,7 +146,7 @@ def main(_):
 
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='gen_optimizer')
-        optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl/3, beta1=0.5, name='cls_optimizer')
+        optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='cls_optimizer')
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
