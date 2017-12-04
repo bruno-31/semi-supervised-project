@@ -119,7 +119,7 @@ def main(_):
     with tf.variable_scope('discriminator_model') as scope:
         dis(inp, is_training_pl, init=True)  # Data driven initialization
         scope.reuse_variables()
-        logits_dis_lab, logits_cls_lab, _ = dis(inp, is_training_pl)
+        logits_dis_lab, logits_cls_lab, layer_lbl = dis(inp, is_training_pl)
         logits_dis_unl, _, layer_real = dis(unl, is_training_pl)
         logits_dis_gen, logits_cls_gen, layer_fake = dis(gen_inp, is_training_pl)
 
@@ -148,6 +148,9 @@ def main(_):
         # variance leayer conditioned to each label
         loss_std = .001 * std_loss(layer_fake)
 
+        # cond_fm
+        l_m1  = tf.reduce_mean(layer_lbl)
+        l_m2 = tf.reduce_mean(la)
         loss_gen += loss_q
         loss_dis += loss_q
         loss_c += loss_q

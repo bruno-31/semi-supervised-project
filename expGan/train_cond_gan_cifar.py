@@ -129,9 +129,9 @@ def main(_):
         loss_c = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_lab, labels=tf.one_hot(lbl, 10)))
 
-        loss_q = 0.1 * tf.reduce_mean(
+        loss_q = 0.05 * tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
-        # loss_c += loss_q
+        loss_c += loss_q
         # loss_gen += loss_q
         # loss_dis += loss_q
 
@@ -173,7 +173,7 @@ def main(_):
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate_g, beta1=0.5, name='gen_optimizer')
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=sharedvars + dvars)
-        train_cls_op = optimizer_cls.minimize(loss_c, var_list=sharedvars + cvars)
+        train_cls_op = optimizer_cls.minimize(loss_c, var_list=sharedvars + cvars + gvars)
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
