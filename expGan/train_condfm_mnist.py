@@ -114,7 +114,7 @@ def main(_):
     dis = discriminator
 
     with tf.variable_scope('generator_model'):
-        gen_inp = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl)
+        gen_inp,z_seed = gen(FLAGS.batch_size, lbl_fake, is_training=is_training_pl)
 
     with tf.variable_scope('discriminator_model') as scope:
         dis(inp, is_training_pl, init=True)  # Data driven initialization
@@ -139,7 +139,7 @@ def main(_):
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_features_matching = tf.reduce_mean(tf.square(m1 - m2))
         loss_gen_bin = tf.reduce_mean(sigmoid(logits=logits_dis_gen, labels=tf.ones([FLAGS.batch_size, 1])))
-        loss_gen = 0 * loss_features_matching + 1* loss_gen_bin
+        loss_gen = 1 * loss_features_matching + 0* loss_gen_bin
 
         loss_q = 0.1 * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits_cls_gen, labels=lbl_fake))
         loss_c = tf.reduce_mean(
@@ -148,9 +148,15 @@ def main(_):
         # variance leayer conditioned to each label
         loss_std = .001 * std_loss(layer_fake)
 
+        grad = tf.gradients(logits_cls_gen, z_seed)
+        dd = tf.sqrt(tf.reduce_sum(tf.square(grad),axis=1))
+        ddx = 0.01* tf.reduce_mean(tf.square(dd-0))
+        print(ddx)
+
+        # loss_c += ddx
+        # loss_gen += ddx
+
         # cond_fm
-        l_m1  = tf.reduce_mean(layer_lbl)
-        l_m2 = tf.reduce_mean(la)
         loss_gen += loss_q
         loss_dis += loss_q
         loss_c += loss_q

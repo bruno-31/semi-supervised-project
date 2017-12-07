@@ -84,12 +84,15 @@ def generator(batch_size,code,is_training):
     with tf.variable_scope('dense1'):
         x = tf.layers.dense(seed, 500, name='fc1', activation=None)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = tf.nn.softplus(x)
+        # x = tf.nn.softplus(x)
+        x = tf.nn.relu(x)
     with tf.variable_scope('dense2'):
         x = tf.layers.dense(x, 500, name='fc1', activation=None)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = tf.nn.softplus(x)
+        # x = tf.nn.softplus(x)
+        x = tf.nn.relu(x)
+
     with tf.variable_scope('dense3'):
         x = l2normalize(x)
 
-    return x
+    return x, z_seed
