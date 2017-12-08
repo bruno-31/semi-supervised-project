@@ -4,7 +4,7 @@ import tensorflow as tf
 init_kernel = tf.random_normal_initializer(mean=0, stddev=0.05)
 
 
-def leakyReLu(x, alpha=0.2, name=None):
+def leakyReLu(x, alpha=0.01, name=None):
     if name:
         with tf.variable_scope(name):
             return _leakyReLu_impl(x, alpha)
@@ -26,39 +26,41 @@ def discriminator(inp, is_training):
 
         x = tf.layers.conv2d(x,64,[3,3],padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,64,[3,3],padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,64,[3,3],strides=2,padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
+
 
         # x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
         x = tf.layers.dropout(x,0.5, training=is_training)
 
         x = tf.layers.conv2d(x,128,[3,3],padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,128,[3,3],padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,128,[3,3],strides=2,padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
+
 
         # x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
         x = tf.layers.dropout(x,0.5, training=is_training)
 
         x = tf.layers.conv2d(x,128,[3,3],padding='VALID',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,128,[1,1],padding='VALID',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
         x = tf.layers.conv2d(x,128,[1,1],padding='VALID',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
-        x = leakyReLu(x,0.2)
+        x = leakyReLu(x)
 
         x = tf.layers.average_pooling2d(x,pool_size=6,strides=1)
         x = tf.squeeze(x)

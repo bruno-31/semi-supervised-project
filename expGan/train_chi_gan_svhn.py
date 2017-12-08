@@ -54,6 +54,7 @@ def main(_):
 
     trainx, trainy = svhn_data.load(FLAGS.data_dir, 'train')
     testx, testy = svhn_data.load(FLAGS.data_dir, 'test')
+    # testx, testy =svhn_data.load(FLAGS.data_dir, 'train')
     trainx = rescale(trainx)
     testx = rescale(testx)
     trainx_unl = trainx.copy()
@@ -61,26 +62,27 @@ def main(_):
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
     nr_batches_test = int(testx.shape[0] / FLAGS.batch_size)
 
-    print(trainx.shape[0])
-    print(testx.shape[0])
-
-    print(nr_batches_train)
     # select labeled data
     inds = rng_data.permutation(trainx.shape[0])
     trainx = trainx[inds]
     trainy = trainy[inds]
     txs = []
     tys = []
+    # for j in range(10):
+        # txs.append(trainx[trainy == j][:FLAGS.labeled])
+        # tys.append(trainy[trainy == j][:FLAGS.labeled])
     for j in range(10):
-        txs.append(trainx[trainy == j][:FLAGS.labeled])
-        tys.append(trainy[trainy == j][:FLAGS.labeled])
-    # for j in range(1):
-    #     txs.append(trainx[trainy == j][:])
-    #     tys.append(trainy[trainy == j][:])
+        txs.append(trainx[trainy == j][:])
+        tys.append(trainy[trainy == j][:])
     txs = np.concatenate(txs, axis=0)
     tys = np.concatenate(tys, axis=0)
 
-    print('labeled images : ', len(tys))
+    print("data:")
+    print('train shape %d | batch training %d \ntest shape %d  |  batch  testing %d' \
+            %(trainx.shape[0], nr_batches_train, testx.shape[0],nr_batches_test))
+    print('labels histogram train',np.histogram(trainy,bins=10)[0])
+    print('labels histogram test ', np.histogram(testy, bins=10)[0])
+    print("")
 
     '''construct graph'''
     print('constructing graph')
@@ -111,19 +113,19 @@ def main(_):
     with tf.name_scope('loss_functions'):
         xentropy = tf.nn.sparse_softmax_cross_entropy_with_logits
         sigmoid = tf.nn.sigmoid_cross_entropy_with_logits
-        # loss_cls = tf.reduce_mean(xentropy(logits=l_lab_cls, labels=lbl))
-        # loss_dis_unl = tf.reduce_mean(sigmoid(logits=l_unl_dis, labels=tf.ones_like(l_unl_dis)))
-        # loss_dis_gen = tf.reduce_mean(sigmoid(logits=l_gen_dis, labels=tf.zeros_like(l_gen_dis)))
-        # loss_dis = loss_dis_unl + loss_dis_gen
+        loss_cls = tf.reduce_mean(xentropy(logits=l_lab_cls, labels=lbl))
+        loss_dis_unl = tf.reduce_mean(sigmoid(logits=l_unl_dis, labels=tf.ones_like(l_unl_dis)))
+        loss_dis_gen = tf.reduce_mean(sigmoid(logits=l_gen_dis, labels=tf.zeros_like(l_gen_dis)))
+        loss_dis = loss_dis_unl + loss_dis_gen
 
 
-        loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=l_lab_cls,labels=lbl))
-        l_unl = tf.reduce_logsumexp(l_unl_cls, axis=1)
-        l_gen = tf.reduce_logsumexp(l_gen_cls, axis=1)
-        loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
-                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
-                   + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
+        # loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=l_lab_cls,labels=lbl))
+        # l_unl = tf.reduce_logsumexp(l_unl_cls, axis=1)
+        # l_gen = tf.reduce_logsumexp(l_gen_cls, axis=1)
+        # loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
+        #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
+        #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
+        # loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
 
 
         accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(l_gen_dis, 0), tf.float32))
@@ -147,7 +149,7 @@ def main(_):
         dd = tf.sqrt(tf.reduce_sum(tf.square(grad),axis=1))
         ddx = 0.01* tf.reduce_mean(tf.square(dd-0))
 
-        loss_gen += ddx
+        # loss_gen += ddx
         # print(ddx)
 
 
@@ -167,27 +169,29 @@ def main(_):
 
         optimizer_dis = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='dis_optimizer')
         optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='gen_optimizer')
-        # optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='cls_optimizer')
+        optimizer_cls = tf.train.AdamOptimizer(learning_rate=lr_pl, beta1=0.5, name='cls_optimizer')
 
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
         train_dis_op = optimizer_dis.minimize(loss_dis, var_list=disvars+sharedvars)
 
-        # cls_op = optimizer_cls.minimize(loss_cls, var_list=clsvars+sharedvars)
+        cls_op = optimizer_cls.minimize(loss_cls, var_list=clsvars+sharedvars)
 
         ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = ema.apply(dvars)
 
-        # with tf.control_dependencies(update_ops_dis):
-        #     with tf.control_dependencies([cls_op]):
-        #         train_cls_op = tf.group(maintain_averages_op)
+        with tf.control_dependencies(update_ops_dis):
+            with tf.control_dependencies([cls_op]):
+                train_cls_op = tf.group(maintain_averages_op)
 
         with tf.control_dependencies(update_ops_dis):
             with tf.control_dependencies([train_dis_op]):
                 dis_op = tf.group(maintain_averages_op)
 
         copy_graph = [tf.assign(x, ema.average(y)) for x, y in zip(testvars, dvars)]
+        [print(var.name) for var in dvars]
+        [print(var.name) for var in testvars]
 
     with tf.name_scope('summary'):
         with tf.name_scope('dis_summary'):
@@ -204,8 +208,8 @@ def main(_):
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits', gen_inp, 20, ['image'])
-            tf.summary.image('input_images', unl, 3, ['image'])
+            tf.summary.image('gen_digits', gen_inp, 5, ['image'])
+            tf.summary.image('input_images', unl, 5, ['image'])
 
         with tf.name_scope('epoch_summary'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
@@ -257,35 +261,35 @@ def main(_):
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
 
-                # train discriminator
-                feed_dict = {unl: trainx_unl[ran_from:ran_to],
-                             inp: trainx[ran_from:ran_to],
-                             lbl: trainy[ran_from:ran_to],
-                             is_training_pl: True, lr_pl: lr}
-                _, lu, sm = sess.run([dis_op, loss_dis, sum_op_dis],
-                                     feed_dict=feed_dict)
-                train_loss_unl += lu
-                writer.add_summary(sm, train_batch)
-
-                # # train classifier
-                # feed_dict = {is_training_pl: True,
-                #              unl: trainx_unl[ran_from:ran_to],
+                # # train discriminator
+                # feed_dict = {unl: trainx_unl[ran_from:ran_to],
                 #              inp: trainx[ran_from:ran_to],
                 #              lbl: trainy[ran_from:ran_to],
-                #              lr_pl: lr}
-                # _, acc, lb, sm = sess.run([train_cls_op, accuracy, loss_cls, sum_op_cls],
-                #                               feed_dict=feed_dict)
-                # train_loss_lab += lb
-                # train_acc += acc
+                #              is_training_pl: True, lr_pl: lr}
+                # _, lu, sm = sess.run([dis_op, loss_dis, sum_op_dis],
+                #                      feed_dict=feed_dict)
+                # train_loss_unl += lu
                 # writer.add_summary(sm, train_batch)
 
-                # train generator
-                _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
-                                                                                      is_training_pl: True,
-                                                                                      lr_pl:lr})
-                train_loss_gen += lg
-                train_batch += 1
+                # train classifier
+                feed_dict = {is_training_pl: True,
+                             unl: trainx_unl[ran_from:ran_to],
+                             inp: trainx[ran_from:ran_to],
+                             lbl: trainy[ran_from:ran_to],
+                             lr_pl: lr}
+                _, acc, lb, sm = sess.run([train_cls_op, accuracy, loss_cls, sum_op_cls],
+                                              feed_dict=feed_dict)
+                train_loss_lab += lb
+                train_acc += acc
                 writer.add_summary(sm, train_batch)
+
+                # # train generator
+                # _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
+                #                                                                       is_training_pl: True,
+                #                                                                       lr_pl:lr})
+                # train_loss_gen += lg
+                # train_batch += 1
+                # writer.add_summary(sm, train_batch)
 
                 if t % FLAGS.freq_print == 0:
                     ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
