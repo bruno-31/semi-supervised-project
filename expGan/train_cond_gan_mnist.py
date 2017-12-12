@@ -5,12 +5,12 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from expGan.cond_gan_mnist import generator, discriminator
+from cond_gan_mnist import generator, discriminator
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
-flags.DEFINE_string('logdir', './log_bruno/000', 'log directory')
+flags.DEFINE_string('logdir', './log_mnist/000', 'log directory')
 flags.DEFINE_integer('seed', 146, 'seed')
 flags.DEFINE_integer('seed_data', 646, 'seed data')
 flags.DEFINE_integer('seed_tf', 646, 'tf random seed')

@@ -14,14 +14,19 @@ def leakyReLu(x, alpha=0.01, name=None):
 def _leakyReLu_impl(x, alpha):
     return tf.nn.relu(x) - (alpha * tf.nn.relu(-x))
 
-def gaussian_noise_layer(input_layer, std):
-    noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
-    return input_layer + noise
+
+# def get_getter(ema):
+#     def  ema_getter(getter, name, *args, **kwargs):
+#         var = getter(name, *args,**kwargs)
+#         ema_var = ema.average(var)
+#         return ema_var if ema_var else var
+#     return ema_getter
 
 
-def discriminator(inp, is_training):
+def discriminator(inp, is_training, getter=None):
+    # with tf.variable_scope('cls',custom_getter=getter):
 
-    with tf.variable_scope('shared_weights'):
+    with tf.variable_scope('shared_weights',custom_getter=getter):
         x = tf.reshape(inp, [-1, 32, 32, 3])
 
         x = tf.layers.conv2d(x,64,[3,3],padding='SAME',kernel_initializer=init_kernel)
@@ -33,7 +38,7 @@ def discriminator(inp, is_training):
         x = tf.layers.conv2d(x,64,[3,3],strides=2,padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
         x = leakyReLu(x)
-
+        inter_layer3 = x
 
         # x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
         x = tf.layers.dropout(x,0.5, training=is_training)
@@ -47,7 +52,7 @@ def discriminator(inp, is_training):
         x = tf.layers.conv2d(x,128,[3,3],strides=2,padding='SAME',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
         x = leakyReLu(x)
-
+        inter_layer2 = x
 
         # x = tf.layers.max_pooling2d(x,2,2,padding='SAME')
         x = tf.layers.dropout(x,0.5, training=is_training)
@@ -61,18 +66,19 @@ def discriminator(inp, is_training):
         x = tf.layers.conv2d(x,128,[1,1],padding='VALID',kernel_initializer=init_kernel)
         x = tf.layers.batch_normalization(x,training=is_training)
         x = leakyReLu(x)
+        inter_layer1 = x
 
-        x = tf.layers.average_pooling2d(x,pool_size=6,strides=1)
+        # x = tf.layers.average_pooling2d(x,pool_size=6,strides=1)
+        x = tf.layers.max_pooling2d(x,pool_size=6,strides=4)
         x = tf.squeeze(x)
-        inter_layer = x
 
-    with tf.variable_scope('cls_weights'):
+    with tf.variable_scope('cls_weights',custom_getter=getter):
         cls = tf.layers.dense(x,10,kernel_initializer=tf.random_normal_initializer(stddev=0.05))
 
     with tf.variable_scope('dis_weights'):
         dis = tf.layers.dense(x,1,kernel_initializer=tf.random_normal_initializer(stddev=0.05))
 
-    return  cls,dis, inter_layer
+    return  cls,dis, inter_layer1 , inter_layer2, inter_layer3
 
 
 def generator(z_seed, is_training):
