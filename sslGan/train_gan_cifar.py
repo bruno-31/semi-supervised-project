@@ -4,10 +4,9 @@ import time
 import numpy as np
 import tensorflow as tf
 
-import cifar10_input
+from data import cifar10_input
 import cifar_gan
-from utils import *
-
+import sys
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
@@ -30,6 +29,13 @@ print("\nParameters:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
+
+
+def display_progression_epoch(j, id_max):
+    batch_progression = int((j / id_max) * 100)
+    sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
+    _ = sys.stdout.flush
+
 
 def main(_):
     if not os.path.exists(FLAGS.logdir):
@@ -285,7 +291,7 @@ def main(_):
             writer.add_summary(sum, epoch)
 
 
-            if epoch % FLAGS.freq_save == 0:
+            if epoch % FLAGS.freq_save == 0 & epoch != 0:
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
                 print("Model saved in file: %s" % (save_path))
 
