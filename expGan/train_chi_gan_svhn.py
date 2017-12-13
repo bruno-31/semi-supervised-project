@@ -104,15 +104,24 @@ def main(_):
     gen = svhn_chi_gan.generator
     dis = svhn_chi_gan.discriminator
 
+    ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
+
     random_z = tf.random_uniform([FLAGS.batch_size, 128], name='random_z')
     with tf.variable_scope('generator_model') as scope:
+        # gen(random_z,is_training_pl,init=True)
+        # scope.reuse_variables()
         gen_inp = gen(random_z, is_training_pl)
 
     with tf.variable_scope('discriminator_model') as scope:
+        # dis(inp, is_training_pl, init=True)
+        # scope.reuse_variables()
         l_lab_cls, l_lab_dis, _,_,_= dis(inp, is_training_pl)
         scope.reuse_variables()
+
         l_gen_cls, l_gen_dis, layer_fake, lf2,lf3 = dis(gen_inp, is_training_pl)
         l_unl_cls, l_unl_dis, layer_real, lr2,lr3 = dis(unl, is_training_pl)
+        # l_test, _, _, _, _ = dis(inp, is_training_pl, getter=get_getter(ema))
+
 
     # with tf.variable_scope("model_test"):
     #     l_test, _,_,_,_ = dis(inp, is_training_pl)
@@ -189,22 +198,22 @@ def main(_):
         dis_op = optimizer_dis.minimize(loss_dis, var_list=disvars+sharedvars)
         cls_op = optimizer_cls.minimize(loss_cls, var_list=clsvars+sharedvars)
 
-        ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
+        # ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = tf.group(ema.apply(dvars))
 
         # with tf.variable_scope("model_test"):
-        l_test, _, _, _, _ = dis(inp, is_training_pl, getter=get_getter(ema))
+        # l_test, _, _, _, _ = dis(inp, is_training_pl, getter=get_getter(ema))
 
-        correct_pred_test = tf.equal(tf.cast(tf.argmax(l_test, 1), tf.int32), tf.cast(lbl, tf.int32))
-        accuracy_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
+        # correct_pred_test = tf.equal(tf.cast(tf.argmax(l_test, 1), tf.int32), tf.cast(lbl, tf.int32))
+        # accuracy_test = tf.reduce_mean(tf.cast(correct_pred_test, tf.float32))
 
-        with tf.control_dependencies(update_ops_dis):
-            with tf.control_dependencies([dis_op]):
-                train_dis_op = maintain_averages_op
+        # with tf.control_dependencies(update_ops_dis):
+        with tf.control_dependencies([dis_op]):
+            train_dis_op = maintain_averages_op
 
-        with tf.control_dependencies(update_ops_dis): #batchnorm
-            with tf.control_dependencies([cls_op]):
-                train_cls_op = maintain_averages_op
+        # with tf.control_dependencies(update_ops_dis): #batchnorm
+        with tf.control_dependencies([cls_op]):
+            train_cls_op = maintain_averages_op
 
         # with tf.control_dependencies(update_ops_dis):  # batchnorm
         #     with tf.control_dependencies([maintain_averages_op]):
@@ -216,8 +225,9 @@ def main(_):
         # ema.average(y)
 
         # copy_graph = [tf.assign(x, ema.average(y)) for x, y in zip(testvars, dvars)]
-        # [print(var.name) for var in dvars]
-        # [print(var.name) for var in testvars]
+        # [print(var.name) for var in clsvars]
+        # print('')
+        # [print(var.name) for var in sharedvars]
 
     with tf.name_scope('summary'):
         with tf.name_scope('dis_summary'):
@@ -255,10 +265,11 @@ def main(_):
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
-
+        init_gen = [var.initializer for var in gvars][:-3]
+        sess.run(init_gen)
         init = tf.global_variables_initializer()
-        sess.run(init)
-        print('initialization done')
+        sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
+        print('data driven initialization done')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
 
@@ -316,13 +327,13 @@ def main(_):
                 # train_loss_gen += lg
                 # train_batch += 1
                 # writer.add_summary(sm, train_batch)
-                #
-                # if t % FLAGS.freq_print == 0:
-                #     ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
-                #     ran_to = ran_from + FLAGS.batch_size
-                #     sm = sess.run(sum_op_im, feed_dict={unl: trainx_unl[ran_from:ran_to],
-                #                                         is_training_pl: False})
-                #     writer.add_summary(sm, train_batch)
+
+                if t % FLAGS.freq_print == 0:
+                    ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
+                    ran_to = ran_from + FLAGS.batch_size
+                    sm = sess.run(sum_op_im, feed_dict={unl: trainx_unl[ran_from:ran_to],
+                                                        is_training_pl: False})
+                    writer.add_summary(sm, train_batch)
 
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train

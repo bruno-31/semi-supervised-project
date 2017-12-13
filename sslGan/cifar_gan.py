@@ -40,7 +40,7 @@ def discriminator(inp, is_training, init=False):
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)
 
-    x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192
+    x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
     x = tf.squeeze(x, [1, 2])
 
     intermediate_layer = x
