@@ -35,12 +35,10 @@ def discriminator(inp, is_training, init=False):
     x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
-
-    x = nn.conv2d(x, 192, padding='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+    x = nn.conv2d(x, 192, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)
-
-    x = tf.layers.max_pooling2d(x, pool_size=8, strides=1, name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
+    x = tf.layers.max_pooling2d(x, pool_size=6, strides=1, name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
     x = tf.squeeze(x, [1, 2])
 
     intermediate_layer = x
@@ -72,5 +70,5 @@ def generator(z_seed, is_training, init):
     # including weightnorm     # [batch,32,32,3]
     with tf.variable_scope('deconv_3'):
         output = nn.deconv2d(x, num_filters=3, filter_size=[5, 5], stride=[2, 2], nonlinearity=tf.tanh, init=init,
-                             counters=counter)
+                             counters=counter, init_scale=0.1)
     return output

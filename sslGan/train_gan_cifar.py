@@ -133,7 +133,7 @@ def main(_):
         # GENERATOR
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
-        loss_gen = tf.reduce_mean(tf.square(m1 - m2))
+        loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
         #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
@@ -235,7 +235,7 @@ def main(_):
 
             # training
             for t in range(nr_batches_train):
-                display_progression_epoch(t, nr_batches_train)
+                # display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
 
