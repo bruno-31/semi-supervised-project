@@ -90,7 +90,7 @@ def main(_):
     gen = cifar_gan.generator
     dis = cifar_gan.discriminator
 
-    random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
+    random_z = tf.random_uniform([FLAGS.batch_size, 50], name='random_z')
     with tf.variable_scope('generator_model') as scope:
         gen(random_z, is_training_pl, init=True)
         scope.reuse_variables()
