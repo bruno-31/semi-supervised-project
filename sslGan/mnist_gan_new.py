@@ -69,14 +69,17 @@ def generator(z_seed,is_training, init=False,reuse=False):
     with tf.variable_scope('generator_model', reuse=reuse):
         counter = {}
         with tf.variable_scope('dense1'):
-            x = tf.layers.dense(z_seed, 500, name='fc1', activation=None, kernel_initializer=init_kernel)
+            x = tf.layers.dense(z_seed, 500, name='fc1', activation=None)
             x = tf.layers.batch_normalization(x,training=is_training)
-            x = tf.nn.softplus(x)
+            # x = tf.nn.softplus(x)
+            x = tf.nn.relu(x)
         with tf.variable_scope('dense2'):
-            x = tf.layers.dense(x, 500, name='fc1', activation=None, kernel_initializer=init_kernel)
+            x = tf.layers.dense(x, 500, name='fc1', activation=None)
             x = tf.layers.batch_normalization(x,training=is_training)
-            x = tf.nn.softplus(x)
+            # x = tf.nn.softplus(x)
+            x = tf.nn.relu(x)
+
         with tf.variable_scope('dense3'):
-            x = nn.dense(x,28**2, tf.sigmoid,init=init, init_w=init_kernel,counters=counter, train_scale=True)
+            x = nn.dense(x,28**2, tf.sigmoid,init=init,counters=counter, train_scale=True)
 
         return x

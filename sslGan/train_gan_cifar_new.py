@@ -129,6 +129,20 @@ def main(_):
         loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
+        k = []
+        for j in range(10):
+            grad = tf.gradients(logits_gen[j], random_z)
+            k.append(grad)
+        J = tf.stack(k)
+        J = tf.squeeze(J)
+        J = tf.transpose(J, perm=[1, 0, 2])  # jacobian
+        j_n = tf.square(tf.norm(J, axis=[1, 2]))
+        j_loss_gen = tf.reduce_mean(j_n)
+
+        loss_dis += 0.01 * j_loss_gen
+        loss_gen += 0.01 * j_loss_gen
+        print('gradient reg enabled ...')
+
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
         tvars = tf.trainable_variables()

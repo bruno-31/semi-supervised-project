@@ -158,12 +158,26 @@ def main(_):
         loss_dis += FLAGS.var * loss_var
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
-        grad = tf.gradients(logits_gen, random_z)
-        dd = tf.sqrt(tf.reduce_sum(tf.square(grad), axis=1))
-        ddx =tf.reduce_mean(tf.square(dd - 0))
+        # grad = tf.gradients(logits_gen, random_z)
+        # dd = tf.sqrt(tf.reduce_sum(tf.square(grad), axis=1))
+        # ddx =tf.reduce_mean(tf.square(dd - 0))
+        # if FLAGS.nabla:
+        #     loss_dis+= FLAGS.nabla_weight * ddx
+        #     loss_gen+= FLAGS.nabla_weight * ddx
+        #     print('gradient reg enabled ...')
+
+        k = []
+        for j in range(10):
+            grad = tf.gradients(logits_gen[j], random_z)
+            k.append(grad)
+        J = tf.stack(k)
+        J = tf.squeeze(J)
+        J = tf.transpose(J, perm=[1, 0, 2])  # jacobian
+        j_n = tf.square(tf.norm(J, axis=[1, 2]))
+        j_loss_gen = tf.reduce_mean(j_n)
         if FLAGS.nabla:
-            loss_dis+= FLAGS.nabla_weight * ddx
-            loss_gen+= FLAGS.nabla_weight * ddx
+            loss_dis+= FLAGS.nabla_weight * j_loss_gen
+            loss_gen+= FLAGS.nabla_weight * j_loss_gen
             print('gradient reg enabled ...')
 
     with tf.name_scope('optimizers'):
