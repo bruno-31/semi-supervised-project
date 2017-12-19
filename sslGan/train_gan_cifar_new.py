@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 from data import cifar10_input
-import cifar_gan_new
+from cifar_gan_new import discriminator,generator
 import sys
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -13,15 +13,22 @@ flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
-flags.DEFINE_integer('seed', 1, 'seed ')
-flags.DEFINE_integer('seed_data', 1, 'seed data')
-flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
+# flags.DEFINE_integer('seed', 1, 'seed ')
+# flags.DEFINE_integer('seed_data', 1, 'seed data')
+flags.DEFINE_integer('seed', 10, 'seed ')
+flags.DEFINE_integer('seed_data', 10, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
-flags.DEFINE_integer('freq_print', 500, 'frequency image print tensorboard [500]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average for inference test set, 0 to disable  [0.9999]')
+
+flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]') #20 epochs
+flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
+flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
+flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
+
+
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
@@ -93,26 +100,16 @@ def main(_):
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
-    gen = cifar_gan_new.generator
-    dis = cifar_gan_new.discriminator
+    random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
+    generator(random_z, is_training_pl, init=True)
+    gen_inp = generator(random_z, is_training_pl, init=False,reuse=True)
 
-    random_z = tf.random_uniform([FLAGS.batch_size, 50], name='random_z')
-    gen(random_z, is_training_pl, init=True)
-    gen_inp = gen(random_z, is_training_pl, init=False,reuse=True)
-
-    dis(unl, is_training_pl, init=True)
-    logits_lab, _ = dis(inp, is_training_pl, init=False,reuse=True)
-    logits_gen, layer_fake = dis(gen_inp, is_training_pl, init=False,reuse=True)
-    logits_unl, layer_real = dis(unl, is_training_pl, init=False,reuse=True)
+    discriminator(unl, is_training_pl, init=True)
+    logits_lab, _ = discriminator(inp, is_training_pl, init=False,reuse=True)
+    logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False,reuse=True)
+    logits_unl, layer_real = discriminator(unl, is_training_pl, init=False,reuse=True)
 
     with tf.name_scope('loss_functions'):
-
-        # z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
-        # rg = tf.cast(tf.range(0, FLAGS.batch_size), tf.int32)
-        # idx = tf.stack([rg, lbl], axis=1)
-        # l_lab = tf.gather_nd(logits_lab, idx)
-        # loss_lab = -tf.reduce_mean(l_lab) + z_exp_lab
-
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
         # DISCRIMINATOR
@@ -130,8 +127,6 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
-        # loss_gen = - 0.5 * tf.reduce_mean(l_gen) \
-        #            + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
     with tf.name_scope('optimizers'):
@@ -151,41 +146,36 @@ def main(_):
         with tf.control_dependencies(update_ops_gen):
             train_gen_op = optimizer_gen.minimize(loss_gen, var_list=gvars)
 
-
         dis_op = optimizer_dis.minimize(loss_dis, var_list=dvars)
 
         ema = tf.train.ExponentialMovingAverage(decay=FLAGS.ma_decay)
         maintain_averages_op = ema.apply(dvars)
 
-        # with tf.control_dependencies(update_ops_dis):
-
         with tf.control_dependencies([dis_op]):
             train_dis_op = tf.group(maintain_averages_op)
 
-        logits_ema, _ = dis(inp, is_training_pl, getter=get_getter(ema), reuse=True)
+        logits_ema, _ = discriminator(inp, is_training_pl, getter=get_getter(ema), reuse=True)
         correct_pred_ema = tf.equal(tf.cast(tf.argmax(logits_ema, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_ema = tf.reduce_mean(tf.cast(correct_pred_ema, tf.float32))
 
     with tf.name_scope('summary'):
-        with tf.name_scope('dis_summary'):
-            tf.summary.scalar('loss_unlabeled', loss_dis, ['dis'])
+        with tf.name_scope('discriminator'):
             tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
-            # tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
-            # tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
 
-        with tf.name_scope('gen_summary'):
+        with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
-        with tf.name_scope('image_summary'):
-            tf.summary.image('gen_digits', gen_inp, 20, ['image'])
-            tf.summary.image('input_images', unl, 1, ['image'])
+        with tf.name_scope('images'):
+            tf.summary.image('gen_images', gen_inp, 20, ['image'])
 
-        with tf.name_scope('epoch_summary'):
+        with tf.name_scope('epoch'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
-            tf.summary.scalar('accuracy_test', acc_test_pl, ['epoch'])
-            tf.summary.scalar('learning_rate', lr_pl,['epoch'])
+            tf.summary.scalar('accuracy_test_moving_average', acc_test_pl_ema, ['epoch'])
+            tf.summary.scalar('accuracy_test_raw', acc_test_pl, ['epoch'])
+            tf.summary.scalar('learning_rate', lr_pl, ['epoch'])
+
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -208,13 +198,9 @@ def main(_):
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
 
-        # tvars = tf.trainable_variables()
-        # [print(v.name) for v in tvars]
-        glob_begin = time.time()
         for epoch in range(1200):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma = [0,0, 0, 0, 0, 0]
-
             lr = FLAGS.learning_rate * min(3-epoch/400,1)
 
             # construct randomly permuted minibatches
@@ -246,23 +232,25 @@ def main(_):
                 train_loss_unl += lu
                 train_loss_lab += lb
                 train_acc += acc
-                writer.add_summary(sm, train_batch)
+                if (train_batch % FLAGS.step_print) == 0:
+                    writer.add_summary(sm, train_batch)
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
                                                                                       is_training_pl: True,
                                                                                       lr_pl:lr})
                 train_loss_gen += lg
-                train_batch += 1
-                writer.add_summary(sm, train_batch)
+                if (train_batch % FLAGS.step_print) == 0:
+                    writer.add_summary(sm, train_batch)
 
-                if t % FLAGS.freq_print == 0:
+                if (train_batch % FLAGS.freq_print == 0) & (train_batch != 0):
                     ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
                     ran_to = ran_from + FLAGS.batch_size
                     sm = sess.run(sum_op_im,
                                   feed_dict={is_training_pl: True, unl: trainx_unl[ran_from:ran_to]})
                     writer.add_summary(sm, train_batch)
 
+                train_batch += 1
 
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train
@@ -270,26 +258,27 @@ def main(_):
             train_acc /= nr_batches_train
 
             # Testing
-            for t in range(nr_batches_test):
-                ran_from = t * FLAGS.batch_size
-                ran_to = (t + 1) * FLAGS.batch_size
-                feed_dict = {inp: testx[ran_from:ran_to],
-                             lbl: testy[ran_from:ran_to],
-                             is_training_pl: False}
-                acc,acc_ema = sess.run([accuracy,accuracy_ema], feed_dict=feed_dict)
-                test_acc+=acc
-                test_acc_ma += acc_ema
-            test_acc /= nr_batches_test
-            test_acc_ma /= nr_batches_test
+            if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
+                for t in range(nr_batches_test):
+                    ran_from = t * FLAGS.batch_size
+                    ran_to = (t + 1) * FLAGS.batch_size
+                    feed_dict = {inp: testx[ran_from:ran_to],
+                                 lbl: testy[ran_from:ran_to],
+                                 is_training_pl: False}
+                    acc,acc_ema = sess.run([accuracy,accuracy_ema], feed_dict=feed_dict)
+                    test_acc+=acc
+                    test_acc_ma += acc_ema
+                test_acc /= nr_batches_test
+                test_acc_ma /= nr_batches_test
 
-            sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
-                                                    acc_test_pl: test_acc,
-                                                    acc_test_pl_ema:test_acc_ma,
-                                                    lr_pl:lr})
-            writer.add_summary(sum, epoch)
+                sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
+                                                        acc_test_pl: test_acc,
+                                                        acc_test_pl_ema:test_acc_ma,
+                                                        lr_pl:lr})
+                writer.add_summary(sum, epoch)
 
 
-            if epoch % FLAGS.freq_save == 0 & epoch != 0:
+            if (epoch % FLAGS.freq_save == 0) & (epoch != 0) | (epoch == 1199):
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
                 print("Model saved in file: %s" % (save_path))
 

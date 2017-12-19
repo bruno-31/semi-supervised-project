@@ -39,11 +39,17 @@ def discriminator(inp, is_training, init=False, reuse=False, getter =None):
 
         x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
 
-        x = nn.conv2d(x, 512, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-        x = nn.conv2d(x, 256, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-        x = nn.conv2d(x, 128, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
-
-        x = tf.layers.max_pooling2d(x, pool_size=2, strides=1, name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
+        # x = nn.conv2d(x, 512, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+        # x = nn.conv2d(x, 256, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+        # x = nn.conv2d(x, 128, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+        # print(x)
+        # x = tf.layers.max_pooling2d(x, pool_size=2, strides=1, name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
+        # x = tf.squeeze(x, [1, 2])
+        x = nn.conv2d(x, 192, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
+        x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+        x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
+        x = tf.layers.max_pooling2d(x, pool_size=6, strides=1,
+                                    name='avg_pool_0')  # batch *1*1* 192 #!!! qchtung avg pool
         x = tf.squeeze(x, [1, 2])
 
         intermediate_layer = x
