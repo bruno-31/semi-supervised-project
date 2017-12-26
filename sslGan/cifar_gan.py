@@ -35,6 +35,7 @@ def discriminator(inp, is_training, init=False):
     x = nn.conv2d(x, 192, nonlinearity=leakyReLu, init=init, counters=counter)
     x = nn.conv2d(x, 192, stride=[2, 2], nonlinearity=leakyReLu, init=init, counters=counter)  # => 8*8
     x = tf.layers.dropout(x, rate=0.5, training=is_training, name='dropout_2')
+
     x = nn.conv2d(x, 192, pad='VALID', nonlinearity=leakyReLu, init=init, counters=counter)  # 8*8
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init=init)
     x = nn.nin(x, 192, counters=counter, nonlinearity=leakyReLu, init = init)

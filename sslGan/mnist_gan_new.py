@@ -7,10 +7,6 @@ init_w = tf.random_normal_initializer(mean=0, stddev=0.1)
 
 def gaussian_noise_layer(input_layer, std, deterministic):
     noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
-    # if deterministic or std==0:
-    #     return input_layer
-    # else:
-    #     return input_layer + noise
     y= tf.cond(deterministic, lambda :input_layer, lambda :input_layer+noise)
     return y
 
@@ -71,13 +67,13 @@ def generator(z_seed,is_training, init=False,reuse=False):
         with tf.variable_scope('dense1'):
             x = tf.layers.dense(z_seed, 500, name='fc1', activation=None)
             x = tf.layers.batch_normalization(x,training=is_training)
-            # x = tf.nn.softplus(x)
-            x = tf.nn.relu(x)
+            x = tf.nn.softplus(x)
+            # x = tf.nn.relu(x)
         with tf.variable_scope('dense2'):
             x = tf.layers.dense(x, 500, name='fc1', activation=None)
             x = tf.layers.batch_normalization(x,training=is_training)
-            # x = tf.nn.softplus(x)
-            x = tf.nn.relu(x)
+            x = tf.nn.softplus(x)
+            # x = tf.nn.relu(x)
 
         with tf.variable_scope('dense3'):
             x = nn.dense(x,28**2, tf.sigmoid,init=init,counters=counter, train_scale=True)

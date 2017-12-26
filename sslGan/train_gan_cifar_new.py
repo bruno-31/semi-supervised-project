@@ -22,12 +22,15 @@ flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average for inference test set, 0 to disable  [0.9999]')
+flags.DEFINE_float('scale', 1.0 , 'scale perturbation')
+flags.DEFINE_float('nabla_w', 0.01 , 'weight nabla reg')
+
+
 
 flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]') #20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
-
 
 
 FLAGS = flags.FLAGS
@@ -101,13 +104,17 @@ def main(_):
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
+    perturb = tf.random_normal([FLAGS.batch_size , 100], mean=0, stddev=0.01)
+    random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
     generator(random_z, is_training_pl, init=True)
     gen_inp = generator(random_z, is_training_pl, init=False,reuse=True)
+    gen_inp_pert = generator(random_z_pert, is_training_pl, init=False,reuse=True)
 
     discriminator(unl, is_training_pl, init=True)
     logits_lab, _ = discriminator(inp, is_training_pl, init=False,reuse=True)
     logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False,reuse=True)
     logits_unl, layer_real = discriminator(unl, is_training_pl, init=False,reuse=True)
+    logits_gen_perturb, layer_fake_perturb = discriminator(gen_inp_pert, is_training_pl,init=False,reuse=True)
 
     with tf.name_scope('loss_functions'):
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
@@ -129,19 +136,26 @@ def main(_):
         loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
-        k = []
-        for j in range(10):
-            grad = tf.gradients(logits_gen[j], random_z)
-            k.append(grad)
-        J = tf.stack(k)
-        J = tf.squeeze(J)
-        J = tf.transpose(J, perm=[1, 0, 2])  # jacobian
-        j_n = tf.square(tf.norm(J, axis=[1, 2]))
-        j_loss_gen = tf.reduce_mean(j_n)
+        # k = []
+        # for j in range(10):
+        #     grad = tf.gradients(logits_gen[j], random_z)
+        #     k.append(grad)
+        # J = tf.stack(k)
+        # J = tf.squeeze(J)
+        # J = tf.transpose(J, perm=[1, 0, 2])  # jacobian
+        # j_n = tf.square(tf.norm(J, axis=[1, 2]))
+        # j_loss_gen = tf.reduce_mean(j_n)
+        # print(j_loss_gen)
+        # loss_dis += 0.001 * j_loss_gen
+        # loss_gen += 0.001 * j_loss_gen
+        # print('CS jacobian reg enabled ...')
 
-        loss_dis += 0.01 * j_loss_gen
-        loss_gen += 0.01 * j_loss_gen
-        print('gradient reg enabled ...')
+        grad = tf.reduce_sum(tf.square(logits_gen-logits_gen_perturb),axis=1)
+        j_loss = tf.reduce_mean(grad,axis=0)
+
+        loss_dis += FLAGS.nabla_w * j_loss
+        loss_gen += FLAGS.nabla_w * j_loss
+        print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -179,6 +193,7 @@ def main(_):
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
+            tf.summary.scalar('j_loss_gen',j_loss,['gen'])
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('images'):
@@ -204,6 +219,7 @@ def main(_):
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
+        tf.set_random_seed(rng.randint(2**10))
         sess.run(init_gen)
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper

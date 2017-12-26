@@ -3,28 +3,43 @@ import time
 import numpy as np
 import tensorflow as tf
 from mnist_gan_new import generator, discriminator
+import sys
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log_mnist/000', 'log directory')
-flags.DEFINE_integer('seed', 146, 'seed')
-flags.DEFINE_integer('seed_data', 646, 'seed data')
-flags.DEFINE_integer('seed_tf', 646, 'tf random seed')
 flags.DEFINE_integer('labeled', 10, 'labeled image per class[100]')
 flags.DEFINE_float('learning_rate_d', 0.003, 'learning_rate dis[0.003]')
 flags.DEFINE_float('learning_rate_g', 0.003, 'learning_rate gen[0.003]')
-flags.DEFINE_float('unl_weight', 1, 'unlabeled weight [1.]')
-flags.DEFINE_float('lbl_weight', 1, 'labeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average [0.9999]')
-FREQ_PRINT = 1000
+
+flags.DEFINE_float('step_print', 1200 , 'scale perturbation')
+flags.DEFINE_float('freq_print', 12000, 'scale perturbation')
+
+flags.DEFINE_integer('seed', 111, 'seed')
+flags.DEFINE_integer('seed_data', 111, 'seed data')
+flags.DEFINE_integer('seed_tf', 111, 'tf random seed')
+
+flags.DEFINE_float('scale', 0.1 , 'scale perturbation')
+flags.DEFINE_boolean('nabla', False , 'enable nabla reg')
+flags.DEFINE_float('nabla_w', 0.01 , 'weight nabla reg')
+flags.DEFINE_boolean('soft', True , 'enable nabla reg softmaxed')
+
+
+
 FLAGS._parse_flags()
 
 print("\nParameters:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
+
+def display_progression_epoch(j, id_max):
+    batch_progression = int((j / id_max) * 100)
+    sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
+    _ = sys.stdout.flush
 
 def get_getter(ema):  # to update neural net with moving avg variables, suitable for ss learning cf Saliman
     def ema_getter(getter, name, *args, **kwargs):
@@ -40,7 +55,6 @@ def main(_):
     # Random seed
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
-    tf.set_random_seed(FLAGS.seed_tf)
     print('loading data')
     # load MNIST data
     data = np.load('./data/mnist.npz')
@@ -83,14 +97,22 @@ def main(_):
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
+    sample = 1
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
+    perturb =tf.random_normal([FLAGS.batch_size * sample, 100],mean=0,stddev=0.01)
+    random_z_pert = tf.tile(random_z,[sample,1]) + \
+        FLAGS.scale*perturb/(tf.expand_dims(tf.norm(perturb, axis=1),axis=1)*tf.ones([1,100]))
+    print(random_z_pert)
     generator(random_z,is_training_pl,init=True)
     gen_inp = generator(random_z, is_training=is_training_pl,reuse=True)
+    gen_inp_perturb = generator(random_z_pert, is_training=is_training_pl,reuse=True)
 
     discriminator(inp, is_training_pl, init=True)
     logits_lab, layer_lab = discriminator(inp, is_training_pl,reuse=True)
     logits_unl, layer_real = discriminator(unl, is_training_pl,reuse=True)
     logits_gen, layer_fake = discriminator(gen_inp, is_training_pl,reuse=True)
+    logits_gen_perturb, layer_fake_perturb = discriminator(gen_inp_perturb, is_training_pl,reuse=True)
+
 
     with tf.name_scope('loss_functions'):
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
@@ -100,7 +122,7 @@ def main(_):
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
+        loss_dis = loss_unl + loss_lab
 
         accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
@@ -121,9 +143,22 @@ def main(_):
         # J = tf.transpose(J,perm=[1,0,2]) # jacobian
         # j_n = tf.square(tf.norm(J,axis=[1,2]))
         # j_loss_gen = tf.reduce_mean(j_n)
-        #
-        # loss_dis += 0.01 * j_loss_gen
-        # loss_gen += 0.01 * j_loss_gen
+        # if FLAGS.nabla:
+        #     loss_dis += FLAGS.nabla_w * j_loss_gen
+        #     loss_gen += FLAGS.nabla_w * j_loss_gen
+        #     print('grad reg enabled')
+
+        if FLAGS.soft:
+            grad = tf.reduce_sum(tf.square(tf.nn.softmax(logits_gen) - tf.nn.softmax(logits_gen_perturb)), axis=1)
+        else:
+            grad = tf.reduce_sum(tf.square(tf.tile(logits_gen,[sample,1])-logits_gen_perturb),axis=1)
+
+        j_loss = tf.reduce_mean(grad,axis=0)
+
+        if FLAGS.nabla:
+            loss_dis += FLAGS.nabla_w * j_loss
+            loss_gen += FLAGS.nabla_w * j_loss
+            print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -163,7 +198,7 @@ def main(_):
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('images'):
-            tf.summary.image('gen_images', tf.reshape(gen_inp,[-1,28,28,1]), 20, ['image'])
+            tf.summary.image('gen_images', tf.reshape(gen_inp,[-1,28,28,1]),5, ['image'])
 
         with tf.name_scope('epoch'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
@@ -183,6 +218,7 @@ def main(_):
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
+        tf.set_random_seed(FLAGS.seed_tf)
         sess.run(init_gen)
         init = tf.global_variables_initializer()
         #Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
@@ -209,6 +245,8 @@ def main(_):
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma = [ 0, 0, 0, 0, 0,0]
             # training
             for t in range(nr_batches_train):
+                display_progression_epoch(t, nr_batches_train)
+
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
 
@@ -222,17 +260,20 @@ def main(_):
                 train_loss_lab += ll
                 train_loss_unl += lu
                 train_acc += acc
-                writer.add_summary(sm, train_batch)
+                if (train_batch % FLAGS.step_print) == 0:
+                    writer.add_summary(sm, train_batch)
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
                                                                                       is_training_pl: True})
                 train_loss_gen += lg
-                writer.add_summary(sm, train_batch)
+                if ((train_batch % FLAGS.step_print) == 0):
+                    writer.add_summary(sm, train_batch)
 
-                if t % FREQ_PRINT == 0:
+                if ((train_batch % FLAGS.freq_print) == 0):
                     sm = sess.run(sum_op_im, feed_dict={is_training_pl: False})
                     writer.add_summary(sm, train_batch)
+
                 train_batch += 1
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train

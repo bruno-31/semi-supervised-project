@@ -14,9 +14,9 @@ flags = tf.app.flags
 flags.DEFINE_integer('batch_size', 100, 'batch size [100]')
 flags.DEFINE_string('data_dir', './data', 'data directory')
 flags.DEFINE_string('logdir', './log_svhn/000', 'log directory')
-flags.DEFINE_integer('seed', 4, 'seed ')
-flags.DEFINE_integer('seed_data', 4, 'seed data')
-flags.DEFINE_integer('labeled', 100, 'labeled data per class')
+flags.DEFINE_integer('seed', 1, 'seed ')
+flags.DEFINE_integer('seed_data', 1, 'seed data')
+flags.DEFINE_integer('labeled', 1000, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_integer('freq_print', 200, 'frequency image print tensorboard [20]')
 flags.DEFINE_float('ma_decay', 0.9999, 'moving average testing, 0 to disable  [0.9999]')
@@ -111,12 +111,18 @@ def main(_):
     gen_inp = gen(random_z, is_training_pl,reuse=True)
 
     dis(inp, is_training_pl, init=True)
-    logits_lab, _,_,_ = dis(inp, is_training_pl,reuse=True)
-    logits_gen, f_gen1,f_gen2,f_gen3 = dis(gen_inp, is_training_pl,reuse=True)
-    logits_unl, f_unl1,f_unl2,f_unl3 = dis(unl, is_training_pl,reuse=True)
+    logits_lab, _ = dis(inp, is_training_pl,reuse=True)
+    logits_gen, f_gen = dis(gen_inp, is_training_pl,reuse=True)
+    logits_unl, f_unl = dis(unl, is_training_pl,reuse=True)
 
     with tf.name_scope('loss_functions'):
         loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits_lab, labels=lbl))
+        # z_exp_lab = tf.reduce_mean(tf.reduce_logsumexp(logits_lab, axis=1))
+        # rg = tf.cast(tf.range(0, FLAGS.batch_size), tf.int32)
+        # idx = tf.stack([rg, lbl], axis=1)
+        # l_lab = tf.gather_nd(logits_lab, idx)
+        # loss_lab = -tf.reduce_mean(l_lab) + z_exp_lab
+
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
@@ -126,16 +132,13 @@ def main(_):
 
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
+        accuracy_dis_gen = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
+        accuracy_dis_unl = tf.reduce_mean(tf.cast(tf.greater(l_unl, 0), tf.float32))
 
         # GENERATOR
-        # m1 = tf.reduce_mean(f_gen1, axis=0)
-        # m2 = tf.reduce_mean(f_unl1, axis=0)
-        # m11 = tf.reduce_mean(f_gen2, axis=0)
-        # m22 = tf.reduce_mean(f_unl2, axis=0)
-        m111 = tf.reduce_mean(f_gen3, axis=0)
-        m222 = tf.reduce_mean(f_unl3, axis=0)
-        loss_gen = tf.reduce_mean(tf.abs(m111 - m222))
+        m1 = tf.reduce_mean(f_gen, axis=0)
+        m2 = tf.reduce_mean(f_unl, axis=0)
+        loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -159,7 +162,7 @@ def main(_):
         with tf.control_dependencies([dis_op]):
             train_dis_op = tf.group(maintain_averages_op)
 
-        logits_ema,_,_,_ = dis(inp, is_training_pl, getter=get_getter(ema), reuse=True)
+        logits_ema,_ = dis(inp, is_training_pl, getter=get_getter(ema), reuse=True)
         correct_pred_ema = tf.equal(tf.cast(tf.argmax(logits_ema, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_ema = tf.reduce_mean(tf.cast(correct_pred_ema, tf.float32))
 
@@ -170,10 +173,11 @@ def main(_):
 
     with tf.name_scope('summary'):
         with tf.name_scope('dis_summary'):
-            tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
-            # tf.summary.scalar('discriminator_accuracy_gen', accuracy_dis_gen, ['dis'])
+            # tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
             tf.summary.scalar('classifier_accuracy', accuracy, ['cls'])
+            tf.summary.scalar('discriminator_accuracy_fake_samples', accuracy_dis_gen, ['dis'])
+            tf.summary.scalar('discriminator_accuracy_unl_samples', accuracy_dis_unl, ['dis'])
 
         with tf.name_scope('gen_summary'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
@@ -198,13 +202,14 @@ def main(_):
     # [print(var.name) for var in tf.trainable_variables()]
 
     saver = tf.train.Saver()
-    init = tf.global_variables_initializer()
     init_gen = [var.initializer for var in gvars][:-3]
 
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
+        tf.set_random_seed(rng.randint(2**10))
         sess.run(init_gen)
+        init = tf.global_variables_initializer()
         sess.run(init, feed_dict={inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
                                   is_training_pl: True})
         print('Data driven initialization done')
