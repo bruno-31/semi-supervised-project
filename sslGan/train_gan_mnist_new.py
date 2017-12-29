@@ -97,11 +97,14 @@ def main(_):
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
 
-    sample = 1
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
-    perturb =tf.random_normal([FLAGS.batch_size * sample, 100],mean=0,stddev=0.01)
-    random_z_pert = tf.tile(random_z,[sample,1]) + \
-        FLAGS.scale*perturb/(tf.expand_dims(tf.norm(perturb, axis=1),axis=1)*tf.ones([1,100]))
+    perturb = tf.random_normal([FLAGS.batch_size, 100], mean=0, stddev=0.01)
+    random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
+    sample = 1
+    # random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
+    # perturb =tf.random_normal([FLAGS.batch_size * sample, 100],mean=0,stddev=0.01)
+    # random_z_pert = tf.tile(random_z,[sample,1]) + \
+    #     FLAGS.scale*perturb/(tf.expand_dims(tf.norm(perturb, axis=1),axis=1)*tf.ones([1,100]))
     print(random_z_pert)
     generator(random_z,is_training_pl,init=True)
     gen_inp = generator(random_z, is_training=is_training_pl,reuse=True)

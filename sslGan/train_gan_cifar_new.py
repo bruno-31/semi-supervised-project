@@ -22,8 +22,10 @@ flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999 , 'moving average for inference test set, 0 to disable  [0.9999]')
-flags.DEFINE_float('scale', 1.0 , 'scale perturbation')
-flags.DEFINE_float('nabla_w', 0.01 , 'weight nabla reg')
+
+flags.DEFINE_float('scale', 0.15, 'scale perturbation')
+flags.DEFINE_float('nabla_w', 0.1 , 'weight nabla reg')
+flags.DEFINE_boolean('nabla', False , 'enable nabla reg')
 
 
 
@@ -102,6 +104,7 @@ def main(_):
     acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
+    kl_weight = tf.placeholder(tf.float32, [], 'kl_weight')
 
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
     perturb = tf.random_normal([FLAGS.batch_size , 100], mean=0, stddev=0.01)
@@ -150,12 +153,13 @@ def main(_):
         # loss_gen += 0.001 * j_loss_gen
         # print('CS jacobian reg enabled ...')
 
-        grad = tf.reduce_sum(tf.square(logits_gen-logits_gen_perturb),axis=1)
-        j_loss = tf.reduce_mean(grad,axis=0)
+        grad = tf.nn.softmax_cross_entropy_with_logits(labels=tf.nn.softmax(logits_gen), logits=logits_gen_perturb)
+        j_loss = tf.reduce_mean(grad, axis=0)
 
-        loss_dis += FLAGS.nabla_w * j_loss
-        loss_gen += FLAGS.nabla_w * j_loss
-        print('grad reg enabled')
+        if FLAGS.nabla:
+            loss_dis += kl_weight * j_loss
+            loss_gen += kl_weight * j_loss
+            print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -223,7 +227,8 @@ def main(_):
         sess.run(init_gen)
         init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True})
+        sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size],
+                                  is_training_pl: True, kl_weight:0})
         print('initialization done\n')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
@@ -232,6 +237,7 @@ def main(_):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma = [0,0, 0, 0, 0, 0]
             lr = FLAGS.learning_rate * min(3-epoch/400,1)
+            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
 
             # construct randomly permuted minibatches
             trainx = []
@@ -256,7 +262,7 @@ def main(_):
                              is_training_pl: True,
                              inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
-                             lr_pl: lr}
+                             lr_pl: lr, kl_weight:klw}
                 _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, sum_op_dis],
                                      feed_dict=feed_dict)
                 train_loss_unl += lu
@@ -268,7 +274,7 @@ def main(_):
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
                                                                                       is_training_pl: True,
-                                                                                      lr_pl:lr})
+                                                                                      lr_pl:lr, kl_weight:klw})
                 train_loss_gen += lg
                 if (train_batch % FLAGS.step_print) == 0:
                     writer.add_summary(sm, train_batch)
@@ -312,9 +318,9 @@ def main(_):
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
                 print("Model saved in file: %s" % (save_path))
 
-            print("Epoch %d--Time = %ds Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("Epoch %d--Time = %ds | klw = %0.4f | Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
-                  % (epoch, time.time() -begin,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
+                  % (epoch, time.time() -begin, klw,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
 
 
 if __name__ == '__main__':
