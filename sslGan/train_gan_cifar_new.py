@@ -57,6 +57,21 @@ def display_progression_epoch(j, id_max):
     sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
     _ = sys.stdout.flush
 
+def logsoftmax(x):
+    xdev = x - tf.reduce_max(x, 1, keep_dims=True)
+    lsm = xdev - tf.log(tf.reduce_sum(tf.exp(xdev), 1, keep_dims=True))
+    return lsm
+
+
+def kl_divergence_with_logit(q_logit, p_logit):
+    q = tf.nn.softmax(q_logit)
+    qlogq = tf.reduce_mean(tf.reduce_sum(q * logsoftmax(q_logit), 1))
+    qlogp = tf.reduce_mean(tf.reduce_sum(q * logsoftmax(p_logit), 1))
+    return qlogq - qlogp
+
+def entropy_y_x(logit):
+    p = tf.nn.softmax(logit)
+    return -tf.reduce_mean(tf.reduce_sum(p * logsoftmax(logit), 1))
 
 def main(_):
     if not os.path.exists(FLAGS.logdir):
@@ -139,26 +154,22 @@ def main(_):
         loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
-        # k = []
+        # k=[]
         # for j in range(10):
         #     grad = tf.gradients(logits_gen[j], random_z)
         #     k.append(grad)
-        # J = tf.stack(k)
+        # J=tf.stack(k)
         # J = tf.squeeze(J)
-        # J = tf.transpose(J, perm=[1, 0, 2])  # jacobian
-        # j_n = tf.square(tf.norm(J, axis=[1, 2]))
-        # j_loss_gen = tf.reduce_mean(j_n)
-        # print(j_loss_gen)
-        # loss_dis += 0.001 * j_loss_gen
-        # loss_gen += 0.001 * j_loss_gen
-        # print('CS jacobian reg enabled ...')
+        # J = tf.transpose(J,perm=[1,0,2]) # jacobian
+        # j_n = tf.square(tf.norm(J,axis=[1,2]))
+        # j_loss = tf.reduce_mean(j_n)
 
-        grad = tf.nn.softmax_cross_entropy_with_logits(labels=tf.nn.softmax(logits_gen), logits=logits_gen_perturb)
-        j_loss = tf.reduce_mean(grad, axis=0)
+        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
 
         if FLAGS.nabla:
-            loss_dis += kl_weight * j_loss
-            loss_gen += kl_weight * j_loss
+            loss_dis += 0.01 * j_loss
+            # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
+            # loss_gen += 0.01 * j_loss
             print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
@@ -235,8 +246,11 @@ def main(_):
 
         for epoch in range(1200):
             begin = time.time()
-            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma = [0,0, 0, 0, 0, 0]
-            lr = FLAGS.learning_rate * min(3-epoch/400,1)
+            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0,0,0, 0, 0, 0, 0]
+            # lr = FLAGS.learning_rate * min(3-epoch/400,1)
+            #TODO
+            lr = FLAGS.learning_rate * min(4-epoch/100,1)
+
             klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
 
             # construct randomly permuted minibatches
@@ -263,11 +277,12 @@ def main(_):
                              inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              lr_pl: lr, kl_weight:klw}
-                _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, sum_op_dis],
+                _, acc, lu, lb, jl,sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, j_loss,sum_op_dis],
                                      feed_dict=feed_dict)
                 train_loss_unl += lu
                 train_loss_lab += lb
                 train_acc += acc
+                train_j_loss +=jl
                 if (train_batch % FLAGS.step_print) == 0:
                     writer.add_summary(sm, train_batch)
 
@@ -292,6 +307,7 @@ def main(_):
             train_loss_unl /= nr_batches_train
             train_loss_gen /= nr_batches_train
             train_acc /= nr_batches_train
+            train_j_loss /= nr_batches_train
 
             # Testing
             if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
@@ -318,9 +334,9 @@ def main(_):
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
                 print("Model saved in file: %s" % (save_path))
 
-            print("Epoch %d--Time = %ds | klw = %0.4f | Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("Epoch %d--Time = %ds | jloss = %0.4f | Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
-                  % (epoch, time.time() -begin, klw,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
+                  % (epoch, time.time() -begin, train_j_loss,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
 
 
 if __name__ == '__main__':

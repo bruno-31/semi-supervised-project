@@ -73,7 +73,6 @@ def get_normalized_vector(d):
     d /= tf.sqrt(1e-6 + tf.reduce_sum(tf.pow(d, 2.0), range(1, len(d.get_shape())), keep_dims=True))
     return d
 
-
 def main(_):
     if not os.path.exists(FLAGS.logdir):
         os.mkdir(FLAGS.logdir)
@@ -126,12 +125,14 @@ def main(_):
     kl_weight = tf.placeholder(tf.float32, [], 'kl_weight')
 
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
-    perturb = tf.random_normal([FLAGS.batch_size, 100], mean=0, stddev=1)
-    random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
+    d = tf.random_normal([FLAGS.batch_size, 100], mean=0, stddev=1)
+    print(d)
+    perturb =  FLAGS.scale * d / (tf.expand_dims(tf.norm(d, axis=1), axis=1) * tf.ones([1, 100])+1e-12)
+    # random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
 
     generator(random_z,is_training_pl,init=True)
     gen_inp = generator(random_z, is_training=is_training_pl,reuse=True)
-    gen_inp_perturb = generator(random_z_pert, is_training=is_training_pl,reuse=True)
+    gen_inp_perturb = generator(random_z+perturb, is_training=is_training_pl,reuse=True)
     # gen_inp_pl = generator(noise_pl, is_training=is_training_pl,reuse=True)
 
     discriminator(inp, is_training_pl, init=True)
@@ -160,29 +161,41 @@ def main(_):
         loss_gen = tf.reduce_mean(tf.square(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
-        # k=[]
-        # for j in range(10):
-        #     grad = tf.gradients(logits_gen[j], random_z)
-        #     k.append(grad)
-        # J=tf.stack(k)
-        # J = tf.squeeze(J)
-        # J = tf.transpose(J,perm=[1,0,2]) # jacobian
-        # j_n = tf.square(tf.norm(J,axis=[1,2]))
-        # j_loss = tf.reduce_mean(j_n)
+        k=[]
+        for j in range(10):
+            grad = tf.gradients(logits_gen[j], random_z)
+            k.append(grad)
+        J=tf.stack(k)
+        J = tf.squeeze(J)
+        J = tf.transpose(J,perm=[1,0,2]) # jacobian
+        j_n = tf.square(tf.norm(J,axis=[1,2]))
+        j_loss = tf.reduce_mean(j_n)
 
         # grad = tf.square(tf.norm(logits_gen-logits_gen_perturb,axis=1))
         # j_loss = tf.reduce_mean(grad, axis=0)
 
-        # grad = tf.nn.softmax_cross_entropy_with_logits(labels=tf.nn.softmax(logits_gen),logits=logits_gen_perturb)
-        # j_loss = tf.reduce_mean(grad,axis=0)
+        # j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
 
-        kl = kl_divergence_with_logit(logits_gen_perturb,logits_gen)
-        grad = tf.gradients(kl,)
+        # kl = kl_divergence_with_logit(logits_gen_perturb,logits_gen)
+        # print(kl)
+        # grad = tf.gradients(kl,perturb)[0]
+        # # grad = tf.gradients(kl, [perturb], aggregation_method=2)[0]
+        # print(grad)
+        # j_loss = tf.square(tf.norm(grad))
 
+        # kl = kl_divergence_with_logit(logits_gen, logits_gen)
+        # print(kl)
+        # grad = tf.gradients(kl, random_z)[0]
+        # # grad = tf.gradients(kl, [perturb], aggregation_method=2)[0]
+        # print(grad)
+        # j_loss = tf.square(tf.norm(grad))
+
+        # j_loss = entropy_y_x(logits_gen)
 
         if FLAGS.nabla:
             loss_dis += 0.01 * j_loss
-            loss_gen += 0.01 * j_loss
+            # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
+            # loss_gen += 0.01 * j_loss
             print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
@@ -246,10 +259,6 @@ def main(_):
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
-
-        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-        run_metadata = tf.RunMetadata()
-
         tf.set_random_seed(rng.randint(2**10))
         sess.run(init_gen)
         init = tf.global_variables_initializer()
@@ -274,7 +283,7 @@ def main(_):
             trainx_unl = trainx_unl[rng.permutation(trainx_unl.shape[0])]  # shuffling unl dataset
             trainx_unl2 = trainx_unl2[rng.permutation(trainx_unl2.shape[0])]
 
-            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma = [ 0, 0, 0, 0, 0,0]
+            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0, 0, 0, 0,0]
             # training
             for t in range(nr_batches_train):
                 display_progression_epoch(t, nr_batches_train)
@@ -288,20 +297,14 @@ def main(_):
                              unl: trainx_unl[ran_from:ran_to],
                              is_training_pl: True,
                              kl_weight:w_kl}
-                _, ll, lu, acc, sm = sess.run([train_dis_op, loss_lab, loss_unl, accuracy, sum_op_dis],
-                                              feed_dict=feed_dict,options=run_options, run_metadata=run_metadata)
+                _, ll, lu, acc, jl,sm = sess.run([train_dis_op, loss_lab, loss_unl, accuracy, j_loss,sum_op_dis],
+                                              feed_dict=feed_dict)
                 train_loss_lab += ll
                 train_loss_unl += lu
+                train_j_loss += jl
                 train_acc += acc
                 if (train_batch % FLAGS.step_print) == 0:
                     writer.add_summary(sm, train_batch)
-
-                writer.add_run_metadata(run_metadata, 'step%d' % 1)
-
-                # tl = timeline.Timeline(run_metadata.step_stats)
-                # ctf = tl.generate_chrome_trace_format()
-                # with open('timeline.json', 'w') as f:
-                #     f.write(ctf)
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
@@ -320,6 +323,7 @@ def main(_):
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train
             train_acc /= nr_batches_train
+            train_j_loss /= nr_batches_train
 
             # Testing
             for t in range(nr_batches_test):
@@ -353,9 +357,9 @@ def main(_):
             #         sum = sess.run(sum_inter, {noise_pl:noise,is_training_pl:False})
             #         writer.add_summary(sum, iter )
 
-            print("epoch %d | time = %ds | kl w = %0.4f | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("epoch %d | time = %ds | jloss = %0.4f | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f | test acc ma = %.4f"
-                  % (epoch, time.time() - begin, w_kl, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc, test_acc_ma))
+                  % (epoch, time.time() - begin, train_j_loss, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc, test_acc_ma))
 
         save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
         print('model saved in %s'%(save_path))
