@@ -37,7 +37,7 @@ flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersv2:")
+print("\nParametersV2:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -239,8 +239,8 @@ def main(_):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0,0,0, 0, 0, 0, 0]
             lr = FLAGS.learning_rate * min(3-epoch/400,1)
-            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-
+            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
+            klw = 0.01
             # construct randomly permuted minibatches
             trainx = []
             trainy = []
@@ -255,6 +255,8 @@ def main(_):
 
             # training
             for t in range(nr_batches_train):
+            # for t in range(1):
+
                 display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
@@ -314,18 +316,18 @@ def main(_):
                 sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
                                                         acc_test_pl: test_acc,
                                                         acc_test_pl_ema:test_acc_ma,
-                                                        lr_pl:lr})
+                                                        lr_pl:lr,kl_weight:klw})
                 writer.add_summary(sum, epoch)
 
             # save snapchot of model
-            if (epoch % FLAGS.freq_save == 0) & (epoch != 0) | (epoch == 1199):
+            if (epoch % FLAGS.freq_save == 0)  | (epoch == 1199):
                 string = 'model'+str(epoch)+'.ckpt'
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, string))
                 print("Model saved in file: %s" % (save_path))
 
-            print("Epoch %d--Time = %ds | jloss = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("Epoch %d--Time = %ds | klw = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
-                  % (epoch, time.time() -begin, train_j_loss,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
+                  % (epoch, time.time() -begin, klw,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
 
 
 if __name__ == '__main__':
