@@ -361,7 +361,7 @@ def main(_):
                   "| train acc = %.4f| test acc = %.4f | test acc ma = %.4f"
                   % (epoch, time.time() - begin, train_j_loss, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc, test_acc_ma))
 
-        save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
+        save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model_final.ckpt'))
         print('model saved in %s'%(save_path))
 
 if __name__ == '__main__':

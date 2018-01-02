@@ -37,7 +37,7 @@ flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParameters:")
+print("\nParametersv2:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -61,7 +61,6 @@ def logsoftmax(x):
     xdev = x - tf.reduce_max(x, 1, keep_dims=True)
     lsm = xdev - tf.log(tf.reduce_sum(tf.exp(xdev), 1, keep_dims=True))
     return lsm
-
 
 def kl_divergence_with_logit(q_logit, p_logit):
     q = tf.nn.softmax(q_logit)
@@ -115,6 +114,7 @@ def main(_):
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
+    # scalar pl
     lr_pl = tf.placeholder(tf.float32,[],name='learning_rate_pl')
     acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
@@ -124,12 +124,12 @@ def main(_):
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
     perturb = tf.random_normal([FLAGS.batch_size , 100], mean=0, stddev=0.01)
     random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
-    generator(random_z, is_training_pl, init=True)
+    generator(random_z, is_training_pl, init=True) # init of weightnorm weights cf Salimans et al.
     gen_inp = generator(random_z, is_training_pl, init=False,reuse=True)
     gen_inp_pert = generator(random_z_pert, is_training_pl, init=False,reuse=True)
 
     discriminator(unl, is_training_pl, init=True)
-    logits_lab, _ = discriminator(inp, is_training_pl, init=False,reuse=True)
+    logits_lab, _ = discriminator(inp, is_training_pl, init=False,reuse=True) # init of weightnorm weights cf Salimans et al.
     logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False,reuse=True)
     logits_unl, layer_real = discriminator(unl, is_training_pl, init=False,reuse=True)
     logits_gen_perturb, layer_fake_perturb = discriminator(gen_inp_pert, is_training_pl,init=False,reuse=True)
@@ -153,16 +153,6 @@ def main(_):
         m2 = tf.reduce_mean(layer_fake, axis=0)
         loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
-
-        # k=[]
-        # for j in range(10):
-        #     grad = tf.gradients(logits_gen[j], random_z)
-        #     k.append(grad)
-        # J=tf.stack(k)
-        # J = tf.squeeze(J)
-        # J = tf.transpose(J,perm=[1,0,2]) # jacobian
-        # j_n = tf.square(tf.norm(J,axis=[1,2]))
-        # j_loss = tf.reduce_mean(j_n)
 
         j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
 
@@ -219,6 +209,7 @@ def main(_):
             tf.summary.scalar('accuracy_test_moving_average', acc_test_pl_ema, ['epoch'])
             tf.summary.scalar('accuracy_test_raw', acc_test_pl, ['epoch'])
             tf.summary.scalar('learning_rate', lr_pl, ['epoch'])
+            tf.summary.scalar('kl_weight',kl_weight,['epoch'])
 
 
         sum_op_dis = tf.summary.merge_all('dis')
@@ -247,10 +238,7 @@ def main(_):
         for epoch in range(1200):
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0,0,0, 0, 0, 0, 0]
-            # lr = FLAGS.learning_rate * min(3-epoch/400,1)
-            #TODO
-            lr = FLAGS.learning_rate * min(4-epoch/100,1)
-
+            lr = FLAGS.learning_rate * min(3-epoch/400,1)
             klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
 
             # construct randomly permuted minibatches
@@ -283,7 +271,7 @@ def main(_):
                 train_loss_lab += lb
                 train_acc += acc
                 train_j_loss +=jl
-                if (train_batch % FLAGS.step_print) == 0:
+                if (train_batch % FLAGS.step_print) == 0: # to save ram on tensorboard
                     writer.add_summary(sm, train_batch)
 
                 # train generator
@@ -309,7 +297,7 @@ def main(_):
             train_acc /= nr_batches_train
             train_j_loss /= nr_batches_train
 
-            # Testing
+            # Testing moving averaged model and raw model after each epoch
             if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
                 for t in range(nr_batches_test):
                     ran_from = t * FLAGS.batch_size
@@ -329,12 +317,13 @@ def main(_):
                                                         lr_pl:lr})
                 writer.add_summary(sum, epoch)
 
-
+            # save snapchot of model
             if (epoch % FLAGS.freq_save == 0) & (epoch != 0) | (epoch == 1199):
-                save_path = saver.save(sess, os.path.join(FLAGS.logdir, 'model.ckpt'))
+                string = 'model'+str(epoch)+'.ckpt'
+                save_path = saver.save(sess, os.path.join(FLAGS.logdir, string))
                 print("Model saved in file: %s" % (save_path))
 
-            print("Epoch %d--Time = %ds | jloss = %0.4f | Lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+            print("Epoch %d--Time = %ds | jloss = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                   "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
                   % (epoch, time.time() -begin, train_j_loss,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
 
