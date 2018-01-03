@@ -5,8 +5,9 @@ import numpy as np
 import tensorflow as tf
 
 from data import cifar10_input
-from cifar_gan_new import discriminator,generator
+from cifar_gan_new import discriminator, generator
 import sys
+
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
@@ -21,23 +22,20 @@ flags.DEFINE_integer('labeled', 400, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
-flags.DEFINE_float('ma_decay', 0.9999 , 'moving average for inference test set, 0 to disable  [0.9999]')
+flags.DEFINE_float('ma_decay', 0.9999, 'moving average for inference test set, 0 to disable  [0.9999]')
 
 flags.DEFINE_float('scale', 0.15, 'scale perturbation')
-flags.DEFINE_float('nabla_w', 0.1 , 'weight nabla reg')
-flags.DEFINE_boolean('nabla', False , 'enable nabla reg')
+flags.DEFINE_float('nabla_w', 0.1, 'weight nabla reg')
+flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
 
-
-
-flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]') #20 epochs
+flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]')  # 20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
 
-
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersV2:")
+print("\nParametersV4:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -52,15 +50,18 @@ def get_getter(ema):  # to update neural net with moving avg variables, suitable
 
     return ema_getter
 
+
 def display_progression_epoch(j, id_max):
     batch_progression = int((j / id_max) * 100)
     sys.stdout.write(str(batch_progression) + ' % epoch' + chr(13))
     _ = sys.stdout.flush
 
+
 def logsoftmax(x):
     xdev = x - tf.reduce_max(x, 1, keep_dims=True)
     lsm = xdev - tf.log(tf.reduce_sum(tf.exp(xdev), 1, keep_dims=True))
     return lsm
+
 
 def kl_divergence_with_logit(q_logit, p_logit):
     q = tf.nn.softmax(q_logit)
@@ -68,9 +69,11 @@ def kl_divergence_with_logit(q_logit, p_logit):
     qlogp = tf.reduce_mean(tf.reduce_sum(q * logsoftmax(p_logit), 1))
     return qlogq - qlogp
 
+
 def entropy_y_x(logit):
     p = tf.nn.softmax(logit)
     return -tf.reduce_mean(tf.reduce_sum(p * logsoftmax(logit), 1))
+
 
 def main(_):
     if not os.path.exists(FLAGS.logdir):
@@ -115,52 +118,56 @@ def main(_):
     inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     # scalar pl
-    lr_pl = tf.placeholder(tf.float32,[],name='learning_rate_pl')
+    lr_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
     acc_train_pl = tf.placeholder(tf.float32, [], 'acc_train_pl')
     acc_test_pl = tf.placeholder(tf.float32, [], 'acc_test_pl')
     acc_test_pl_ema = tf.placeholder(tf.float32, [], 'acc_test_pl')
     kl_weight = tf.placeholder(tf.float32, [], 'kl_weight')
 
     random_z = tf.random_uniform([FLAGS.batch_size, 100], name='random_z')
-    perturb = tf.random_normal([FLAGS.batch_size , 100], mean=0, stddev=0.01)
-    random_z_pert = random_z + FLAGS.scale * perturb / (tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
-    generator(random_z, is_training_pl, init=True) # init of weightnorm weights cf Salimans et al.
-    gen_inp = generator(random_z, is_training_pl, init=False,reuse=True)
-    gen_inp_pert = generator(random_z_pert, is_training_pl, init=False,reuse=True)
+    perturb = tf.random_normal([FLAGS.batch_size, 100], mean=0, stddev=0.01)
+    random_z_pert = random_z + FLAGS.scale * perturb / (
+    tf.expand_dims(tf.norm(perturb, axis=1), axis=1) * tf.ones([1, 100]))
+    generator(random_z, is_training_pl, init=True)  # init of weightnorm weights cf Salimans et al.
+    gen_inp = generator(random_z, is_training_pl, init=False, reuse=True)
+    gen_inp_pert = generator(random_z_pert, is_training_pl, init=False, reuse=True)
 
     discriminator(unl, is_training_pl, init=True)
-    logits_lab, _ = discriminator(inp, is_training_pl, init=False,reuse=True) # init of weightnorm weights cf Salimans et al.
-    logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False,reuse=True)
-    logits_unl, layer_real = discriminator(unl, is_training_pl, init=False,reuse=True)
-    logits_gen_perturb, layer_fake_perturb = discriminator(gen_inp_pert, is_training_pl,init=False,reuse=True)
+    logits_lab, _ = discriminator(inp, is_training_pl, init=False,
+                                  reuse=True)  # init of weightnorm weights cf Salimans et al.
+    logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False, reuse=True)
+    logits_unl, layer_real = discriminator(unl, is_training_pl, init=False, reuse=True)
+    logits_gen_perturb, layer_fake_perturb = discriminator(gen_inp_pert, is_training_pl, init=False, reuse=True)
 
     with tf.name_scope('loss_functions'):
         l_unl = tf.reduce_logsumexp(logits_unl, axis=1)
         l_gen = tf.reduce_logsumexp(logits_gen, axis=1)
-        # DISCRIMINATOR
+        # discriminator
         loss_lab = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=lbl, logits=logits_lab))
         loss_unl = - 0.5 * tf.reduce_mean(l_unl) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_unl)) \
                    + 0.5 * tf.reduce_mean(tf.nn.softplus(l_gen))
-        loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
+
+        # generator
+        m1 = tf.reduce_mean(layer_real, axis=0)
+        m2 = tf.reduce_mean(layer_fake, axis=0)
+
+        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
+
+        if FLAGS.nabla:
+            loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + 0.01 * j_loss
+            loss_gen = tf.reduce_mean(tf.abs(m1 - m2)) + 0.01 * j_loss
+            # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
+            print('grad reg enabled')
+        else:
+            loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
+            loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
 
         accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-        # GENERATOR
-        m1 = tf.reduce_mean(layer_real, axis=0)
-        m2 = tf.reduce_mean(layer_fake, axis=0)
-        loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
         fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
-
-        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
-
-        if FLAGS.nabla:
-            loss_dis += 0.01 * j_loss
-            # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
-            # loss_gen += 0.01 * j_loss
-            print('grad reg enabled')
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -195,10 +202,10 @@ def main(_):
         with tf.name_scope('discriminator'):
             tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
+            tf.summary.scalar('kl_loss', j_loss, ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
-            tf.summary.scalar('j_loss_gen',j_loss,['gen'])
             tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('images'):
@@ -209,36 +216,45 @@ def main(_):
             tf.summary.scalar('accuracy_test_moving_average', acc_test_pl_ema, ['epoch'])
             tf.summary.scalar('accuracy_test_raw', acc_test_pl, ['epoch'])
             tf.summary.scalar('learning_rate', lr_pl, ['epoch'])
-            tf.summary.scalar('kl_weight',kl_weight,['epoch'])
-
+            tf.summary.scalar('kl_weight', kl_weight, ['epoch'])
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
         sum_op_im = tf.summary.merge_all('image')
         sum_op_epoch = tf.summary.merge_all('epoch')
 
-
     init_gen = [var.initializer for var in gvars][:-3]
+    with tf.control_dependencies(init_gen):
+        op = tf.global_variables_initializer()
+
+    init_feed_dict = {inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
+                                  is_training_pl: True, kl_weight: 0}
 
     saver = tf.train.Saver()
+
+    global_step = tf.Variable(0, trainable=False, name='global_step')
+    sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step, summary_op=None, save_model_secs=3600,
+                             init_op=op,init_feed_dict=init_feed_dict)
 
     '''//////perform training //////'''
     print('start training')
     with tf.Session() as sess:
-        tf.set_random_seed(rng.randint(2**10))
+        tf.set_random_seed(rng.randint(2 ** 10))
         sess.run(init_gen)
-        init = tf.global_variables_initializer()
+        # init = tf.global_variables_initializer()
         # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        sess.run(init, feed_dict={inp:trainx_unl[:FLAGS.batch_size],unl: trainx_unl[:FLAGS.batch_size],
-                                  is_training_pl: True, kl_weight:0})
+        # sess.run(init, feed_dict={inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
+        #                           is_training_pl: True, kl_weight: 0})
         print('initialization done\n')
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
         train_batch = 0
 
         for epoch in range(1200):
             begin = time.time()
-            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0,0,0, 0, 0, 0, 0]
-            lr = FLAGS.learning_rate * min(3-epoch/400,1)
+            train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
+                                                                                                              0, 0, 0,
+                                                                                                              0]
+            lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
             # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
             klw = 0.01
             # construct randomly permuted minibatches
@@ -255,7 +271,7 @@ def main(_):
 
             # training
             for t in range(nr_batches_train):
-            # for t in range(1):
+                # for t in range(1):
 
                 display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
@@ -266,20 +282,20 @@ def main(_):
                              is_training_pl: True,
                              inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
-                             lr_pl: lr, kl_weight:klw}
-                _, acc, lu, lb, jl,sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, j_loss,sum_op_dis],
-                                     feed_dict=feed_dict)
+                             lr_pl: lr, kl_weight: klw}
+                _, acc, lu, lb, jl, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, j_loss, sum_op_dis],
+                                                  feed_dict=feed_dict)
                 train_loss_unl += lu
                 train_loss_lab += lb
                 train_acc += acc
-                train_j_loss +=jl
-                if (train_batch % FLAGS.step_print) == 0: # to save ram on tensorboard
+                train_j_loss += jl
+                if (train_batch % FLAGS.step_print) == 0:  # to save ram on tensorboard
                     writer.add_summary(sm, train_batch)
 
                 # train generator
                 _, lg, sm = sess.run([train_gen_op, loss_gen, sum_op_gen], feed_dict={unl: trainx_unl2[ran_from:ran_to],
                                                                                       is_training_pl: True,
-                                                                                      lr_pl:lr, kl_weight:klw})
+                                                                                      lr_pl: lr, kl_weight: klw})
                 train_loss_gen += lg
                 if (train_batch % FLAGS.step_print) == 0:
                     writer.add_summary(sm, train_batch)
@@ -307,27 +323,29 @@ def main(_):
                     feed_dict = {inp: testx[ran_from:ran_to],
                                  lbl: testy[ran_from:ran_to],
                                  is_training_pl: False}
-                    acc,acc_ema = sess.run([accuracy,accuracy_ema], feed_dict=feed_dict)
-                    test_acc+=acc
+                    acc, acc_ema = sess.run([accuracy, accuracy_ema], feed_dict=feed_dict)
+                    test_acc += acc
                     test_acc_ma += acc_ema
                 test_acc /= nr_batches_test
                 test_acc_ma /= nr_batches_test
 
                 sum = sess.run(sum_op_epoch, feed_dict={acc_train_pl: train_acc,
                                                         acc_test_pl: test_acc,
-                                                        acc_test_pl_ema:test_acc_ma,
-                                                        lr_pl:lr,kl_weight:klw})
+                                                        acc_test_pl_ema: test_acc_ma,
+                                                        lr_pl: lr, kl_weight: klw})
                 writer.add_summary(sum, epoch)
 
             # save snapchot of model
-            if (epoch % FLAGS.freq_save == 0)  | (epoch == 1199):
-                string = 'model'+str(epoch)+'.ckpt'
+            if (epoch % FLAGS.freq_save == 0) | (epoch == 1199):
+                string = 'model' + str(epoch) + '.ckpt'
                 save_path = saver.save(sess, os.path.join(FLAGS.logdir, string))
                 print("Model saved in file: %s" % (save_path))
 
-            print("Epoch %d--Time = %ds | klw = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
-                  "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
-                  % (epoch, time.time() -begin, klw,lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc, test_acc,test_acc_ma))
+            print(
+                "Epoch %d--Time = %ds | klw = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+                "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
+                % (epoch, time.time() - begin, klw, lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc,
+                   test_acc, test_acc_ma))
 
 
 if __name__ == '__main__':
