@@ -14,8 +14,6 @@ flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
-# flags.DEFINE_integer('seed', 1, 'seed ')
-# flags.DEFINE_integer('seed_data', 1, 'seed data')
 flags.DEFINE_integer('seed', 10, 'seed ')
 flags.DEFINE_integer('seed_data', 10, 'seed data')
 flags.DEFINE_integer('labeled', 400, 'labeled data per class')
@@ -31,11 +29,11 @@ flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
 flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]')  # 20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
-flags.DEFINE_integer('freq_save', 200, 'frequency saver epoch')
+flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersV4:")
+print("\nParametersKL0.01:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -104,7 +102,7 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print("Data:")
-    print('train shape %d | batch training %d \ntest shape %d  |  batch  testing %d' \
+    print('train examples %d, nr batch training %d \n test examples %d, nr batch testing %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
     print('histogram train', np.histogram(trainy, bins=10)[0])
     print('histogram test ', np.histogram(testy, bins=10)[0])
@@ -155,19 +153,21 @@ def main(_):
         j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
 
         if FLAGS.nabla:
-            loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + 0.01 * j_loss
-            loss_gen = tf.reduce_mean(tf.abs(m1 - m2)) + 0.01 * j_loss
+            loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
+            loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
             # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
-            print('grad reg enabled')
+            print('grad reg discrim enabled')
         else:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
             loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
 
-        accuracy_dis = tf.reduce_mean(tf.cast(tf.less(l_unl, 0), tf.float32))
-        correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
-        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        # accuracy_discriminator = 0.5*tf.reduce_mean(tf.cast(tf.greater(l_unl, 0), tf.float32))+\
+        #                0.5*tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
-        fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
+        correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
+        accuracy_classifier = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+        # fool_rate = tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -200,13 +200,13 @@ def main(_):
 
     with tf.name_scope('summary'):
         with tf.name_scope('discriminator'):
-            tf.summary.scalar('discriminator_accuracy', accuracy_dis, ['dis'])
+            # tf.summary.scalar('discriminator_accuracy', accuracy_discriminator, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
             tf.summary.scalar('kl_loss', j_loss, ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
-            tf.summary.scalar('fool_rate', fool_rate, ['gen'])
+            # tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('images'):
             tf.summary.image('gen_images', gen_inp, 20, ['image'])
@@ -223,40 +223,46 @@ def main(_):
         sum_op_im = tf.summary.merge_all('image')
         sum_op_epoch = tf.summary.merge_all('epoch')
 
+    # training global varialble
+    global_epoch = tf.Variable(0, trainable=False, name='global_epoch')
+    global_step = tf.Variable(0, trainable=False, name='global_step')
+    inc_global_step = tf.assign(global_step, global_step+1)
+    inc_global_epoch = tf.assign(global_epoch, global_epoch+1)
+
+    # op initializer for session manager
     init_gen = [var.initializer for var in gvars][:-3]
     with tf.control_dependencies(init_gen):
         op = tf.global_variables_initializer()
-
     init_feed_dict = {inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
                                   is_training_pl: True, kl_weight: 0}
 
-    saver = tf.train.Saver()
-
-    global_step = tf.Variable(0, trainable=False, name='global_step')
-    sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step, summary_op=None, save_model_secs=3600,
+    sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_epoch, summary_op=None, save_model_secs=0,
                              init_op=op,init_feed_dict=init_feed_dict)
 
     '''//////perform training //////'''
     print('start training')
-    with tf.Session() as sess:
+    with sv.managed_session() as sess:
         tf.set_random_seed(rng.randint(2 ** 10))
-        sess.run(init_gen)
-        # init = tf.global_variables_initializer()
-        # Data-Dependent Initialization of Parameters as discussed in DP Kingma and Salimans Paper
-        # sess.run(init, feed_dict={inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
-        #                           is_training_pl: True, kl_weight: 0})
-        print('initialization done\n')
-        writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
-        train_batch = 0
+        print('\ninitialization done')
+        print('Starting training from epoch :%d, step:%d \n'%(sess.run(global_epoch),sess.run(global_step)))
 
-        for epoch in range(1200):
+        writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
+
+        while not sv.should_stop():
+            epoch = sess.run(global_epoch)
+            train_batch = sess.run(global_step)
+
+            if (epoch >= 1200):
+                print("Training done")
+                sv.stop()
+                break
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
                                                                                                               0]
             lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
-            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-            klw = 0.01
+            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
+            # klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
             trainx = []
             trainy = []
@@ -271,19 +277,16 @@ def main(_):
 
             # training
             for t in range(nr_batches_train):
-                # for t in range(1):
-
                 display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
-
                 # train discriminator
                 feed_dict = {unl: trainx_unl[ran_from:ran_to],
                              is_training_pl: True,
                              inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              lr_pl: lr, kl_weight: klw}
-                _, acc, lu, lb, jl, sm = sess.run([train_dis_op, accuracy, loss_lab, loss_unl, j_loss, sum_op_dis],
+                _, acc, lu, lb, jl, sm = sess.run([train_dis_op, accuracy_classifier, loss_lab, loss_unl, j_loss, sum_op_dis],
                                                   feed_dict=feed_dict)
                 train_loss_unl += lu
                 train_loss_lab += lb
@@ -308,6 +311,7 @@ def main(_):
                     writer.add_summary(sm, train_batch)
 
                 train_batch += 1
+                sess.run(inc_global_step)
 
             train_loss_lab /= nr_batches_train
             train_loss_unl /= nr_batches_train
@@ -323,7 +327,7 @@ def main(_):
                     feed_dict = {inp: testx[ran_from:ran_to],
                                  lbl: testy[ran_from:ran_to],
                                  is_training_pl: False}
-                    acc, acc_ema = sess.run([accuracy, accuracy_ema], feed_dict=feed_dict)
+                    acc, acc_ema = sess.run([accuracy_classifier, accuracy_ema], feed_dict=feed_dict)
                     test_acc += acc
                     test_acc_ma += acc_ema
                 test_acc /= nr_batches_test
@@ -335,17 +339,20 @@ def main(_):
                                                         lr_pl: lr, kl_weight: klw})
                 writer.add_summary(sum, epoch)
 
-            # save snapchot of model
-            if (epoch % FLAGS.freq_save == 0) | (epoch == 1199):
-                string = 'model' + str(epoch) + '.ckpt'
-                save_path = saver.save(sess, os.path.join(FLAGS.logdir, string))
-                print("Model saved in file: %s" % (save_path))
-
             print(
-                "Epoch %d--Time = %ds | klw = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
+                "Epoch %d | time = %ds | kl = %0.2e | lr = %0.2e | loss gen = %.4f | loss lab = %.4f | loss unl = %.4f "
                 "| train acc = %.4f| test acc = %.4f | test acc ema = %0.4f"
                 % (epoch, time.time() - begin, klw, lr, train_loss_gen, train_loss_lab, train_loss_unl, train_acc,
                    test_acc, test_acc_ma))
+
+            sess.run(inc_global_epoch)
+
+            # save snap shot of model
+            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == 1199):
+                string = 'model-' + str(epoch)
+                save_path = os.path.join(FLAGS.logdir, string)
+                sv.saver.save(sess, save_path)
+                print("Model saved in file: %s" % (save_path))
 
 
 if __name__ == '__main__':
