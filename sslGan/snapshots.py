@@ -31,9 +31,13 @@ flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 
+flags.DEFINE_string('restore', './log/000/model-800', 'weights directory')
+flags.DEFINE_boolean('viz', False, 'enable viz perturb')
+
+
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersKL0.01:")
+print("\nParameters:finite")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -150,7 +154,8 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
+        # j_loss = kl_divergence_with_logit(logits_gen, logits_gen_perturb)
+        j_loss = tf.reduce_mean(tf.square(tf.norm(logits_gen-logits_gen_perturb,axis=1)))
 
         if FLAGS.nabla:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
@@ -229,40 +234,32 @@ def main(_):
     inc_global_step = tf.assign(global_step, global_step+1)
     inc_global_epoch = tf.assign(global_epoch, global_epoch+1)
 
-    # op initializer for session manager
-    init_gen = [var.initializer for var in gvars][:-3]
-    with tf.control_dependencies(init_gen):
-        op = tf.global_variables_initializer()
-    init_feed_dict = {inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size],
-                                  is_training_pl: True, kl_weight: 0}
-
-    sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_epoch, summary_op=None, save_model_secs=0,
-                             init_op=op,init_feed_dict=init_feed_dict)
+    saver = tf.train.Saver()
     var = 0
     '''//////perform training //////'''
     print('start training')
-    with sv.managed_session() as sess:
+    with tf.Session() as sess:
+        saver.restore(sess, FLAGS.restore)
+        print("Model restored.")
         tf.set_random_seed(rng.randint(2 ** 10))
-        print('\ninitialization done')
         print('Starting training from epoch :%d, step:%d \n'%(sess.run(global_epoch),sess.run(global_step)))
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
 
-        while not sv.should_stop():
-            epoch = sess.run(global_epoch)
-            train_batch = sess.run(global_step)
+        epoch = sess.run(global_epoch)
+        train_batch = sess.run(global_step)
 
+        while(1):
             if (epoch >= 1200):
-                print("Training done")
-                sv.stop()
                 break
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
                                                                                                               0]
             lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
-            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-            # klw = FLAGS.nabla_w
+            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
+            # lr = FLAGS.learning_rate
+            klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
             trainx = []
             trainy = []
@@ -275,8 +272,24 @@ def main(_):
             trainx_unl = trainx_unl[rng.permutation(trainx_unl.shape[0])]  # shuffling unl dataset
             trainx_unl2 = trainx_unl2[rng.permutation(trainx_unl2.shape[0])]
 
+            '''/ visualization /'''
+            print('viz')
+            if FLAGS.viz & ((epoch % 5) == 0):
+                epsilon = 0.05
+                rand_noise = np.random.rand(25, 100)
+                rand_direction = np.random.randn(25, 100)
+                rand_direction /= (np.expand_dims(np.linalg.norm(rand_direction, axis=1), axis=0).T * np.ones([1, 100]))
+                sum_inter = tf.summary.image('interpol' + str(var), gen_inp_pert, 25, ['interpol'])
+                var += 1
+                for iter in range(10):
+                    noise = rand_noise + (epsilon * iter) * rand_direction
+                    sum = sess.run(sum_inter, {random_z_pert: noise, is_training_pl: False})
+                    writer.add_summary(sum, iter)
+                print('display interpolation done')
+
             # training
             for t in range(nr_batches_train):
+            # for t in range(1):
                 display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
@@ -346,12 +359,13 @@ def main(_):
                    test_acc, test_acc_ma))
 
             sess.run(inc_global_epoch)
+            epoch += 1
 
             # save snap shot of model
             if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == 1199):
                 string = 'model-' + str(epoch)
                 save_path = os.path.join(FLAGS.logdir, string)
-                sv.saver.save(sess, save_path)
+                saver.save(sess, save_path)
                 print("Model saved in file: %s" % (save_path))
 
 

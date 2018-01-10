@@ -5,35 +5,40 @@ import numpy as np
 import tensorflow as tf
 
 from data import cifar10_input
+from data import svhn_data
+# from svhn_large import discriminator, generator
 from cifar_gan_new import discriminator, generator
+
 import sys
 
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
 flags.DEFINE_integer("batch_size", 100, "batch size [100]")
-flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
+flags.DEFINE_string('data_dir', './data/svhn', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
 flags.DEFINE_integer('seed', 10, 'seed ')
 flags.DEFINE_integer('seed_data', 10, 'seed data')
-flags.DEFINE_integer('labeled', 400, 'labeled data per class')
+flags.DEFINE_integer('labeled', 100, 'labeled data per class')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999, 'moving average for inference test set, 0 to disable  [0.9999]')
 
-flags.DEFINE_float('scale', 0.15, 'scale perturbation')
-flags.DEFINE_float('nabla_w', 0.1, 'weight nabla reg')
+flags.DEFINE_float('scale', 0.2, 'scale perturbation')
+flags.DEFINE_float('nabla_w', 0.01, 'weight nabla reg')
 flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
 
-flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]')  # 20 epochs
+flags.DEFINE_integer('freq_print', 5000, 'frequency image print tensorboard [500]')  # 20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
+flags.DEFINE_boolean('viz', False, 'enable viz perturb')
+
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersKL0.01:")
+print("\nParameters largekl")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -82,8 +87,15 @@ def main(_):
     rng_data = np.random.RandomState(FLAGS.seed_data)  # seed shuffling
 
     # load CIFAR-10
-    trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
-    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+    # trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
+    # testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+    trainx, trainy = svhn_data.load(FLAGS.data_dir, 'train')
+    testx, testy = svhn_data.load(FLAGS.data_dir, 'test')
+    def rescale(mat):
+        return np.transpose(((-127.5 + mat) / 127.5), (3, 0, 1, 2))
+    trainx = rescale(trainx)
+    testx = rescale(testx)
+
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
     nr_batches_train = int(trainx.shape[0] / FLAGS.batch_size)
@@ -150,13 +162,30 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
+        # j_loss = kl_divergence_with_logit(logits_gen, logits_gen_perturb)
+
+        j_loss = tf.reduce_mean(tf.square(tf.norm(logits_gen-logits_gen_perturb,axis=1)))
+        # print(j_loss)
+
+        # j_loss = tf.gradients(logits_gen, random_z)[0]
+        # j_loss = tf.square(tf.norm(j_loss,axis=1))
+        # j_loss = tf.reduce_mean(j_loss)
+
+        # k=[]
+        # for j in range(10):
+        #     grad = tf.gradients(logits_gen[j], random_z)
+        #     k.append(grad)
+        # J=tf.stack(k)
+        # J = tf.squeeze(J)
+        # J = tf.transpose(J,perm=[1,0,2]) # jacobian
+        # j_n = tf.square(tf.norm(J,axis=[1,2]))
+        # j_loss = tf.reduce_mean(j_n)
 
         if FLAGS.nabla:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
             loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
             # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
-            print('grad reg discrim enabled')
+            print('grad reg enabled')
         else:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
             loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
@@ -198,18 +227,25 @@ def main(_):
         correct_pred_ema = tf.equal(tf.cast(tf.argmax(logits_ema, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_ema = tf.reduce_mean(tf.cast(correct_pred_ema, tf.float32))
 
+        tf.add_to_collection("logits_lab", logits_lab)
+        tf.add_to_collection("logits_ema", logits_ema)
+        tf.add_to_collection("correct_op", correct_pred)
+        tf.add_to_collection("correct_op_ema", correct_pred_ema)
+
     with tf.name_scope('summary'):
         with tf.name_scope('discriminator'):
             # tf.summary.scalar('discriminator_accuracy', accuracy_discriminator, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
-            tf.summary.scalar('kl_loss', j_loss, ['dis'])
+            tf.summary.scalar('j_loss', j_loss, ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
             # tf.summary.scalar('fool_rate', fool_rate, ['gen'])
 
         with tf.name_scope('images'):
-            tf.summary.image('gen_images', gen_inp, 20, ['image'])
+            tf.summary.image('gen_images', gen_inp, 10, ['image'])
+            # tf.summary.image('gen_images', gen_inp_pert, 10, ['image'])
+
 
         with tf.name_scope('epoch'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
@@ -252,17 +288,19 @@ def main(_):
             epoch = sess.run(global_epoch)
             train_batch = sess.run(global_step)
 
-            if (epoch >= 1200):
+            if (epoch >= 400):
                 print("Training done")
                 sv.stop()
                 break
+
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
                                                                                                               0]
-            lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
-            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-            # klw = FLAGS.nabla_w
+            # lr = FLAGS.learning_rate * min(3 - epoch / 300, 1)
+            lr = FLAGS.learning_rate * min(4 - epoch / 100, 1) # linearly decaying from 300 to 400
+            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
+            klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
             trainx = []
             trainy = []
@@ -286,12 +324,11 @@ def main(_):
                              inp: trainx[ran_from:ran_to],
                              lbl: trainy[ran_from:ran_to],
                              lr_pl: lr, kl_weight: klw}
-                _, acc, lu, lb, jl, sm = sess.run([train_dis_op, accuracy_classifier, loss_lab, loss_unl, j_loss, sum_op_dis],
+                _, acc, lu, lb, sm = sess.run([train_dis_op, accuracy_classifier, loss_lab, loss_unl, sum_op_dis],
                                                   feed_dict=feed_dict)
                 train_loss_unl += lu
                 train_loss_lab += lb
                 train_acc += acc
-                train_j_loss += jl
                 if (train_batch % FLAGS.step_print) == 0:  # to save ram on tensorboard
                     writer.add_summary(sm, train_batch)
 
@@ -321,6 +358,9 @@ def main(_):
 
             # Testing moving averaged model and raw model after each epoch
             if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
+                idx = rng.permutation(testx.shape[0])
+                testx = testx[idx]
+                testy = testy[idx]
                 for t in range(nr_batches_test):
                     ran_from = t * FLAGS.batch_size
                     ran_to = (t + 1) * FLAGS.batch_size
