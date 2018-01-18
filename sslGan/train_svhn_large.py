@@ -6,9 +6,6 @@ import tensorflow as tf
 
 from data import cifar10_input
 from data import svhn_data
-# from svhn_large import discriminator, generator
-from cifar_gan_new import discriminator, generator
-
 import sys
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -27,22 +24,31 @@ flags.DEFINE_float('ma_decay', 0.9999, 'moving average for inference test set, 0
 
 flags.DEFINE_float('scale', 0.2, 'scale perturbation')
 flags.DEFINE_float('nabla_w', 0.01, 'weight nabla reg')
-flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
+flags.DEFINE_boolean('jacob_reg', False, 'enable nabla reg')
+flags.DEFINE_boolean('kl_reg', False, 'enable nabla reg')
+flags.DEFINE_boolean('conv_large', False, 'enable nabla reg')
+flags.DEFINE_integer('decay_start', 200, 'labeled data per class')
+flags.DEFINE_integer('epoch', 300, 'labeled data per class')
 
 flags.DEFINE_integer('freq_print', 5000, 'frequency image print tensorboard [500]')  # 20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_test', 1, 'frequency scalar print tensorboard [500]')
 flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
-flags.DEFINE_boolean('viz', False, 'enable viz perturb')
 
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParameters largekl")
+print("\nParameters TZIGAN")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
 
+if FLAGS.conv_large:
+    from svhn_large import discriminator, generator
+    print('conv large loaded')
+else:
+    from cifar_gan_new import discriminator, generator
+    print('conv small loaded')
 
 def get_getter(ema):  # to update neural net with moving avg variables, suitable for ss learning cf Saliman
     def ema_getter(getter, name, *args, **kwargs):
@@ -76,6 +82,10 @@ def kl_divergence_with_logit(q_logit, p_logit):
 def entropy_y_x(logit):
     p = tf.nn.softmax(logit)
     return -tf.reduce_mean(tf.reduce_sum(p * logsoftmax(logit), 1))
+
+
+def linear_decay(decay_start, decay_end, epoch):
+    return min(-1 / (decay_end - decay_start) * epoch + 1 + decay_start / (decay_end - decay_start),1)
 
 
 def main(_):
@@ -114,7 +124,7 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print("Data:")
-    print('train examples %d, nr batch training %d \n test examples %d, nr batch testing %d' \
+    print('train examples %d, nr batch training %d, test examples %d, nr batch testing %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
     print('histogram train', np.histogram(trainy, bins=10)[0])
     print('histogram test ', np.histogram(testy, bins=10)[0])
@@ -164,31 +174,23 @@ def main(_):
 
         # j_loss = kl_divergence_with_logit(logits_gen, logits_gen_perturb)
 
-        j_loss = tf.reduce_mean(tf.square(tf.norm(logits_gen-logits_gen_perturb,axis=1)))
-        # print(j_loss)
 
-        # j_loss = tf.gradients(logits_gen, random_z)[0]
-        # j_loss = tf.square(tf.norm(j_loss,axis=1))
-        # j_loss = tf.reduce_mean(j_loss)
-
-        # k=[]
-        # for j in range(10):
-        #     grad = tf.gradients(logits_gen[j], random_z)
-        #     k.append(grad)
-        # J=tf.stack(k)
-        # J = tf.squeeze(J)
-        # J = tf.transpose(J,perm=[1,0,2]) # jacobian
-        # j_n = tf.square(tf.norm(J,axis=[1,2]))
-        # j_loss = tf.reduce_mean(j_n)
-
-        if FLAGS.nabla:
+        if FLAGS.jacob_reg:
+            j_loss = tf.reduce_mean(tf.square(tf.norm(logits_gen - logits_gen_perturb, axis=1)))
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
             loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
             # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
-            print('grad reg enabled')
+            print('jacob reg enabled')
+        elif FLAGS.kl_reg:
+            j_loss = kl_divergence_with_logit(logits_gen, logits_gen_perturb)
+            loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
+            loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
+            # loss_dis += 0.01 * j_loss + 0.01 * entropy_y_x(logits_gen) + 0.01 * entropy_y_x(logits_unl)
+            print('kl reg enabled')
         else:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab
             loss_gen = tf.reduce_mean(tf.abs(m1 - m2))
+            print('no_reg')
 
         # accuracy_discriminator = 0.5*tf.reduce_mean(tf.cast(tf.greater(l_unl, 0), tf.float32))+\
         #                0.5*tf.reduce_mean(tf.cast(tf.less(l_gen, 0), tf.float32))
@@ -236,7 +238,8 @@ def main(_):
         with tf.name_scope('discriminator'):
             # tf.summary.scalar('discriminator_accuracy', accuracy_discriminator, ['dis'])
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
-            tf.summary.scalar('j_loss', j_loss, ['dis'])
+            if FLAGS.jacob_reg | FLAGS.kl_reg:
+                tf.summary.scalar('j_loss', j_loss, ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
@@ -288,7 +291,7 @@ def main(_):
             epoch = sess.run(global_epoch)
             train_batch = sess.run(global_step)
 
-            if (epoch >= 400):
+            if (epoch >= FLAGS.epoch):
                 print("Training done")
                 sv.stop()
                 break
@@ -297,8 +300,9 @@ def main(_):
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
                                                                                                               0]
-            # lr = FLAGS.learning_rate * min(3 - epoch / 300, 1)
-            lr = FLAGS.learning_rate * min(4 - epoch / 100, 1) # linearly decaying from 300 to 400
+            # lr = FLAGS.learning_rate * min(3 - epoch / 100, 1) # linearly decaying from 200 to 300
+            lr = FLAGS.learning_rate * linear_decay(FLAGS.decay_start,FLAGS.epoch,epoch)
+
             # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
             klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
@@ -388,7 +392,7 @@ def main(_):
             sess.run(inc_global_epoch)
 
             # save snap shot of model
-            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == 1199):
+            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == FLAG.epoch-1):
                 string = 'model-' + str(epoch)
                 save_path = os.path.join(FLAGS.logdir, string)
                 sv.saver.save(sess, save_path)

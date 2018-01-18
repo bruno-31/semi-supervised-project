@@ -22,9 +22,12 @@ flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999, 'moving average for inference test set, 0 to disable  [0.9999]')
 
-flags.DEFINE_float('scale', 0.15, 'scale perturbation')
-flags.DEFINE_float('nabla_w', 0.1, 'weight nabla reg')
+flags.DEFINE_float('scale', 1e-5, 'scale perturbation')
+flags.DEFINE_float('nabla_w', 1e-3, 'weight nabla reg')
+flags.DEFINE_integer('decay_start', 600, 'labeled data per class')
+flags.DEFINE_integer('epoch', 800, 'labeled data per class')
 flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
+
 
 flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]')  # 20 epochs
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [500]')
@@ -33,7 +36,7 @@ flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
-print("\nParametersKL0.01:")
+print("\nParametersJACOBI:")
 for attr, value in sorted(FLAGS.__flags.items()):
     print("{}={}".format(attr.lower(), value))
 print("")
@@ -73,6 +76,11 @@ def entropy_y_x(logit):
     return -tf.reduce_mean(tf.reduce_sum(p * logsoftmax(logit), 1))
 
 
+def linear_decay(decay_start, decay_end, epoch):
+    return min(-1 / (decay_end - decay_start) * epoch + 1 + decay_start / (decay_end - decay_start),1)
+
+
+
 def main(_):
     if not os.path.exists(FLAGS.logdir):
         os.mkdir(FLAGS.logdir)
@@ -102,6 +110,7 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print("Data:")
+    print('indx',inds)
     print('train examples %d, nr batch training %d \n test examples %d, nr batch testing %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
     print('histogram train', np.histogram(trainy, bins=10)[0])
@@ -150,7 +159,7 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        j_loss = kl_divergence_with_logit(logits_gen_perturb, logits_gen)
+        j_loss = tf.reduce_mean(tf.square(tf.norm(logits_gen - logits_gen_perturb, axis=1)))
 
         if FLAGS.nabla:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + kl_weight * j_loss
@@ -252,17 +261,18 @@ def main(_):
             epoch = sess.run(global_epoch)
             train_batch = sess.run(global_step)
 
-            if (epoch >= 1200):
+            if (epoch >= FLAGS.epoch):
                 print("Training done")
                 sv.stop()
                 break
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
-                                                                                                              0]
-            lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
-            klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-            # klw = FLAGS.nabla_w
+                                                                                                                  0]
+            # lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
+            lr = FLAGS.learning_rate * linear_decay(FLAGS.decay_start,FLAGS.epoch,epoch)
+            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
+            klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
             trainx = []
             trainy = []

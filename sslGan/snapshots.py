@@ -33,7 +33,8 @@ flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 
 flags.DEFINE_string('restore', './log/000/model-800', 'weights directory')
 flags.DEFINE_boolean('viz', False, 'enable viz perturb')
-
+flags.DEFINE_integer('decay_start', 800, 'labeled data per class')
+flags.DEFINE_integer('epoch', 1200, 'labeled data per class')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
@@ -70,6 +71,10 @@ def kl_divergence_with_logit(q_logit, p_logit):
     qlogq = tf.reduce_mean(tf.reduce_sum(q * logsoftmax(q_logit), 1))
     qlogp = tf.reduce_mean(tf.reduce_sum(q * logsoftmax(p_logit), 1))
     return qlogq - qlogp
+
+
+def linear_decay(decay_start, decay_end, epoch):
+    return min(-1 / (decay_end - decay_start) * epoch + 1 + decay_start / (decay_end - decay_start),1)
 
 
 def entropy_y_x(logit):
@@ -250,15 +255,13 @@ def main(_):
         train_batch = sess.run(global_step)
 
         while(1):
-            if (epoch >= 1200):
+            if (epoch >= FLAGS.epoch):
                 break
             begin = time.time()
             train_loss_lab, train_loss_unl, train_loss_gen, train_acc, test_acc, test_acc_ma, train_j_loss = [0, 0, 0,
                                                                                                               0, 0, 0,
                                                                                                               0]
-            lr = FLAGS.learning_rate * min(3 - epoch / 400, 1)
-            # klw = FLAGS.nabla_w * max(1/400*epoch-2,0)
-            # lr = FLAGS.learning_rate
+            lr = FLAGS.learning_rate * linear_decay(FLAGS.decay_start,FLAGS.epoch,epoch)
             klw = FLAGS.nabla_w
             # construct randomly permuted minibatches
             trainx = []
