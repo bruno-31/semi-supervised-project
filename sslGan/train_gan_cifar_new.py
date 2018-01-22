@@ -11,7 +11,7 @@ import sys
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
-flags.DEFINE_integer("batch_size", 100, "batch size [100]")
+flags.DEFINE_integer("batch_size", 25, "batch size [100]")
 flags.DEFINE_string('data_dir', './data/cifar-10-python', 'data directory')
 flags.DEFINE_string('logdir', './log/000', 'log directory')
 flags.DEFINE_integer('seed', 10, 'seed ')
@@ -110,12 +110,12 @@ def main(_):
     tys = np.concatenate(tys, axis=0)
 
     print("Data:")
-    print('indx',inds)
-    print('train examples %d, nr batch training %d \n test examples %d, nr batch testing %d' \
+    print('train examples %d, batch %d, test examples %d, batch %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
     print('histogram train', np.histogram(trainy, bins=10)[0])
     print('histogram test ', np.histogram(testy, bins=10)[0])
     print("histogram labeled", np.histogram(tys, bins=10)[0])
+    print('trainy',trainy)
     print("")
 
     '''construct graph'''
@@ -330,7 +330,7 @@ def main(_):
             train_j_loss /= nr_batches_train
 
             # Testing moving averaged model and raw model after each epoch
-            if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
+            if (epoch % FLAGS.freq_test == 0) | (FLAGS.epoch == 1199):
                 for t in range(nr_batches_test):
                     ran_from = t * FLAGS.batch_size
                     ran_to = (t + 1) * FLAGS.batch_size
