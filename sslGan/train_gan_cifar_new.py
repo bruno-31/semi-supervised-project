@@ -257,6 +257,9 @@ def main(_):
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
 
+        print(sess.run(random_z))
+        print(sess.run(gvars[0]))
+
         while not sv.should_stop():
             epoch = sess.run(global_epoch)
             train_batch = sess.run(global_step)
