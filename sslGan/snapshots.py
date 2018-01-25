@@ -22,8 +22,8 @@ flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('ma_decay', 0.9999, 'moving average for inference test set, 0 to disable  [0.9999]')
 
-flags.DEFINE_float('scale', 0.15, 'scale perturbation')
-flags.DEFINE_float('nabla_w', 0.1, 'weight nabla reg')
+flags.DEFINE_float('scale', 1e-5, 'scale perturbation')
+flags.DEFINE_float('nabla_w', 1e-3, 'weight nabla reg')
 flags.DEFINE_boolean('nabla', False, 'enable nabla reg')
 
 flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [500]')  # 20 epochs
@@ -33,8 +33,8 @@ flags.DEFINE_integer('freq_save', 50, 'frequency saver epoch')
 
 flags.DEFINE_string('restore', './log/000/model-800', 'weights directory')
 flags.DEFINE_boolean('viz', False, 'enable viz perturb')
-flags.DEFINE_integer('decay_start', 800, 'labeled data per class')
-flags.DEFINE_integer('epoch', 1200, 'labeled data per class')
+flags.DEFINE_integer('decay_start', 1800, 'labeled data per class')
+flags.DEFINE_integer('epoch', 1800, 'labeled data per class')
 
 FLAGS = flags.FLAGS
 FLAGS._parse_flags()
@@ -277,8 +277,8 @@ def main(_):
 
             '''/ visualization /'''
             print('viz')
-            if FLAGS.viz & ((epoch % 5) == 0):
-                epsilon = 0.05
+            if FLAGS.viz & ((epoch % 1) == 0):
+                epsilon = 0.15
                 rand_noise = np.random.rand(25, 100)
                 rand_direction = np.random.randn(25, 100)
                 rand_direction /= (np.expand_dims(np.linalg.norm(rand_direction, axis=1), axis=0).T * np.ones([1, 100]))
@@ -286,8 +286,9 @@ def main(_):
                 var += 1
                 for iter in range(10):
                     noise = rand_noise + (epsilon * iter) * rand_direction
-                    sum = sess.run(sum_inter, {random_z_pert: noise, is_training_pl: False})
+                    sum, images = sess.run([sum_inter,gen_inp_pert], {random_z_pert: noise, is_training_pl: False})
                     writer.add_summary(sum, iter)
+                    np.savez_compressed('./interp-'+str(iter)+'_'+str(epoch), images=images)
                 print('display interpolation done')
 
             # training
@@ -336,7 +337,9 @@ def main(_):
             train_j_loss /= nr_batches_train
 
             # Testing moving averaged model and raw model after each epoch
-            if (epoch % FLAGS.freq_test == 0) | (epoch == 1199):
+            if (epoch % FLAGS.freq_test == 0) | (epoch == FLAGS.epoch-1):
+
+
                 for t in range(nr_batches_test):
                     ran_from = t * FLAGS.batch_size
                     ran_to = (t + 1) * FLAGS.batch_size

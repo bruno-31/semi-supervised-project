@@ -333,7 +333,7 @@ def main(_):
             train_j_loss /= nr_batches_train
 
             # Testing moving averaged model and raw model after each epoch
-            if (epoch % FLAGS.freq_test == 0) | (FLAGS.epoch == 1199):
+            if (epoch % FLAGS.freq_test == 0) | (epoch == FLAGS.epoch-1):
                 for t in range(nr_batches_test):
                     ran_from = t * FLAGS.batch_size
                     ran_to = (t + 1) * FLAGS.batch_size
@@ -361,7 +361,7 @@ def main(_):
             sess.run(inc_global_epoch)
 
             # save snap shot of model
-            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == 1199):
+            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == FLAGS.epoch-1):
                 string = 'model-' + str(epoch)
                 save_path = os.path.join(FLAGS.logdir, string)
                 sv.saver.save(sess, save_path)
